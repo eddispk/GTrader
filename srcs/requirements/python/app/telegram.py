@@ -1,12 +1,7 @@
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from dotenv import load_dotenv
 import os
 import sys
-
-
-from telethon.tl.custom import message
-
-
 
 
 class Telegram():
@@ -24,26 +19,17 @@ class Telegram():
         self.client = TelegramClient(self.session, self.api_id, self.api_hash, proxy=self.proxy)
 
     async def handler(self, update):
-        t = str(update)
-        pos = t.find(str(self.my_channel))
-        t = t[pos:]
-        pos = t.find("message=")
-        if pos != -1:
-            t = t[pos + len("message= "):]
-            pos = t.find("'")
-            if pos != -1:
-                t = t[:pos]
-                t = t.replace("\\n", "\n", -1)
-                print(t)
-                if t != self.msg:
-                    await self.client.send_message(self.bot_name ,message=t)
-                    self.msg = t
+        t = update.raw_text
+        print(t)
+        if t != self.msg:
+            await self.client.send_message(self.bot_name, message=t)
+            self.msg = t
         return t
 
     def start(self):
             # Register the update handler so that it gets called
         with self.client:
-            t = self.client.add_event_handler(self.handler)
+            t = self.client.add_event_handler(self.handler, events.NewMessage(chats=self.my_channel))
             if len(sys.argv) > 1:
                 exit(0)
             print(t)
