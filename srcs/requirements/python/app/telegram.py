@@ -26,16 +26,21 @@ class Telegram():
             self.msg = t
         return t
 
+    async def _ensure_access(self):
+        await self.client.get_permissions(self.my_channel, "me")
+        await self.client.get_entity(self.bot_name)
+
     def start(self):
-            # Register the update handler so that it gets called
-        with self.client:
-            t = self.client.add_event_handler(self.handler, events.NewMessage(chats=self.my_channel))
-            if len(sys.argv) > 1:
-                exit(0)
-            print(t)
-        
-            # Run the client until Ctrl+C is pressed, or the client disconnects
-            self.client.run_until_disconnected()
+        self.client.loop.run_until_complete(self.client.start())
+        try:
+            self.client.loop.run_until_complete(self._ensure_access())
+        except Exception as exc:
+            print(f"Telegram client setup failed: {exc}")
+            return
+        self.client.add_event_handler(self.handler, events.NewMessage(chats=self.my_channel))
+        if len(sys.argv) > 1:
+            return
+        self.client.run_until_disconnected()
 
 if __name__ == '__main__':
     print("Run Python")
