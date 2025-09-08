@@ -2,3 +2,4 @@
 ./.DS_Store
 config
 __python__
+mariadb

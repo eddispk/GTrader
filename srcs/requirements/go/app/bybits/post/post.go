@@ -26,20 +26,22 @@ func PostOrder(symbol string, api data.BybitApi, trade *data.Trades, url_bybit s
 		"close_on_trigger": false,
 		"stop_loss":        trade.GetSl(symbol),
 	}
-	// tp1
-	_, err := sendPost(params, trade.GetTp1(symbol), api, trade, trade.GetTp1Order(symbol), url_bybit, debug)
-	if err != nil {
-		return err
+
+	tps := []struct{ tp, qty string }{
+		{trade.GetTp1(symbol), trade.GetTp1Order(symbol)},
+		{trade.GetTp2(symbol), trade.GetTp2Order(symbol)},
+		{trade.GetTp3(symbol), trade.GetTp3Order(symbol)},
+		{trade.GetTp4(symbol), trade.GetTp4Order(symbol)}, // may be empty/zero
 	}
-	// tp2
-	_, err = sendPost(params, trade.GetTp2(symbol), api, trade, trade.GetTp2Order(symbol), url_bybit, debug)
-	if err != nil {
-		return err
-	}
-	// tp3
-	_, err = sendPost(params, trade.GetTp3(symbol), api, trade, trade.GetTp3Order(symbol), url_bybit, debug)
-	if err != nil {
-		return err
+
+	for i, x := range tps {
+		if x.tp != "" && x.qty != "" && x.qty != "0" && x.qty != "0.0000" {
+			log.Printf("[ORDER] Creating TP%d order: tp=%s qty=%s entry=%s sl=%s side=%s",
+				i+1, x.tp, x.qty, trade.GetEntry(symbol), trade.GetSl(symbol), trade.GetType(symbol))
+			if _, err := sendPost(params, x.tp, api, trade, x.qty, url_bybit, debug); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -90,12 +92,18 @@ func sendPost(
 
 func PostIsoled(api data.BybitApi, symbol string, trade *data.Trades, url_bybit string, debug bool) error {
 	var isolated Isolated
+	levStr := trade.GetLeverage(symbol)
+	lev, _ := strconv.Atoi(levStr)
+	if lev <= 0 {
+		lev = 10
+	}
+
 	params := map[string]interface{}{
 		"api_key":       api.Api,
 		"symbol":        symbol,
 		"is_isolated":   true,
-		"buy_leverage":  10,
-		"sell_leverage": 10,
+		"buy_leverage":  lev,
+		"sell_leverage": lev,
 		"timestamp":     print.GetTimestamp(),
 	}
 	params["sign"] = sign.GetSignedinter(params, api.Api_secret)
@@ -104,19 +112,15 @@ func PostIsoled(api data.BybitApi, symbol string, trade *data.Trades, url_bybit 
 		return err
 	}
 	url := fmt.Sprint(url_bybit, "/private/linear/position/switch-isolated")
-	req, err := http.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(json_data))
+	req, err := http.Post(url, "application/json", bytes.NewBuffer(json_data))
 	if err != nil {
 		return err
 	}
 	json.NewDecoder(req.Body).Decode(&isolated)
 	if debug {
-		log.Printf("post PostIsoled")
-		log.Println(print.PrettyPrint(isolated))
+		log.Printf("[POST] PostIsoled resp: %s", print.PrettyPrint(isolated))
 	}
-	log.Printf("Isolated active: %d", params["buy_leverage"])
+	log.Printf("[POST] Isolated ON, leverage=%d", lev)
 	return nil
 }
 

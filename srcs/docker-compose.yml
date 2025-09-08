@@ -30,7 +30,7 @@ services:
   #           python bot        #
   ###############################
     python:
-        image: python
+        image: ttrader-python
         restart: always
         build:
             context: ./requirements/python/
@@ -41,6 +41,8 @@ services:
           - API_HASH=${API_HASH}
           - SIGNAL_CHANNEL=${SIGNAL_CHANNEL} 
           - BOT_NAME=${BOT_NAME} 
+          - TELETHON_STRING_SESSION=${TELETHON_STRING_SESSION}   # <-- ADD THIS
+          - PYTHONUNBUFFERED=1   
         ports:
           - "40000:40000"
         networks:

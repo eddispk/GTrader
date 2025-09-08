@@ -4,9 +4,10 @@ WORKDIR /usr/src/app
 COPY ./app/telegram.py ./
 COPY ./config/* ./config/
 
-RUN pip3.10  install python-dotenv
-RUN pip3.10  install Telethon
+RUN pip install --no-cache-dir python-dotenv telethon
+
+# Unbuffered stdout so logs appear immediately
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /usr/src/app/config
-
-CMD [ "python3.10", "../telegram.py" ]
+CMD [ "python", "../telegram.py" ]

@@ -55,7 +55,7 @@ settingTelegram(){
 	cp ./srcs/.env ./srcs/requirements/python/.
 	rm -rf ./srcs/requirements/python/config
 	mkdir ./srcs/requirements/python/config
-	cd ./srcs/requirements/python/config && python3.10 ../app/telegram.py init
+	cd ./srcs/requirements/python/config && python3 ../app/telegram.py init
 }
 
 installEnv

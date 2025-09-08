@@ -46,39 +46,45 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 	price := get.GetPrice(symbol, url_bybite)
 	lastPrice, _ := strconv.ParseFloat(price.Result[0].LastPrice, 64)
 	sl, _ := strconv.ParseFloat(trade.GetSl(symbol), 64)
+	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
 	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)
 	tp2, _ := strconv.ParseFloat(trade.GetTp2(symbol), 64)
 	tp3, _ := strconv.ParseFloat(trade.GetTp3(symbol), 64)
-	var err error
 
-	err = nil
-	log.Println(sl)
-	log.Println(tp1)
-	log.Println(tp2)
-	log.Println(tp3)
 	if lastPrice <= sl {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("%s: Sl touch: ", symbol)
-	} else if lastPrice >= tp3 {
-		log.Printf("%s: All take-profit targets achieved 😎: ", symbol)
+		log.Printf("[TP] %s BUY: SL touched -> closed", symbol)
+		return nil
+	}
+	if lastPrice >= tp3 {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-	} else if lastPrice >= tp2 {
-		err = post.ChangeLs(api, symbol, trade.GetTp2(symbol), trade.GetType(symbol), url_bybite)
-		if err == nil {
-			trade.SetSl(symbol, trade.GetTp2(symbol))
-			log.Printf("%s: Tp2 😎", symbol)
-		}
-	} else if lastPrice >= tp1 {
-		err = post.ChangeLs(api, symbol, trade.GetTp1(symbol), trade.GetType(symbol), url_bybite)
-		if err == nil {
-			trade.SetSl(symbol, trade.GetTp1(symbol))
-			log.Printf("%s: Tp1 😎", symbol)
-		}
+		log.Printf("[TP] %s BUY: All targets hit -> closed", symbol)
+		return nil
 	}
-	if err != nil {
-		return err
+	if lastPrice >= tp2 {
+		// trail SL to TP2
+		if err := post.ChangeLs(api, symbol, trade.GetTp2(symbol), trade.GetType(symbol), url_bybite); err == nil {
+			trade.SetSl(symbol, trade.GetTp2(symbol))
+			log.Printf("[TP] %s BUY: TP2 hit -> SL moved to TP2", symbol)
+		}
+		return nil
+	}
+	if lastPrice >= tp1 {
+		if trade.GetBEAfterTP1(symbol) {
+			be := fmt.Sprintf("%.4f", entry)
+			if err := post.ChangeLs(api, symbol, be, trade.GetType(symbol), url_bybite); err == nil {
+				trade.SetSl(symbol, be)
+				log.Printf("[TP] %s BUY: TP1 hit -> SL moved to BREAKEVEN (%s)", symbol, be)
+			}
+		} else {
+			if err := post.ChangeLs(api, symbol, trade.GetTp1(symbol), trade.GetType(symbol), url_bybite); err == nil {
+				trade.SetSl(symbol, trade.GetTp1(symbol))
+				log.Printf("[TP] %s BUY: TP1 hit -> SL moved to TP1", symbol)
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -87,35 +93,45 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 	price := get.GetPrice(symbol, url_bybite)
 	lastPrice, _ := strconv.ParseFloat(price.Result[0].LastPrice, 64)
 	sl, _ := strconv.ParseFloat(trade.GetSl(symbol), 64)
+	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
 	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)
 	tp2, _ := strconv.ParseFloat(trade.GetTp2(symbol), 64)
 	tp3, _ := strconv.ParseFloat(trade.GetTp3(symbol), 64)
-	var err error
 
-	err = nil
 	if lastPrice >= sl {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("%s: Sl touch: ", symbol)
-	} else if lastPrice <= tp3 {
+		log.Printf("[TP] %s SELL: SL touched -> closed", symbol)
+		return nil
+	}
+	if lastPrice <= tp3 {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("%s: All take-profit targets achieved 😎: ", symbol)
-	} else if lastPrice <= tp2 && tp2 != sl {
-		err = post.ChangeLs(api, symbol, trade.GetTp2(symbol), trade.GetType(symbol), url_bybite)
-		if err == nil {
-			trade.SetSl(symbol, trade.GetTp2(symbol))
-			log.Printf("%s: Tp2 😎", symbol)
-		}
-	} else if lastPrice <= tp1 && tp1 != sl {
-		err = post.ChangeLs(api, symbol, trade.GetTp1(symbol), trade.GetType(symbol), url_bybite)
-		if err == nil {
-			trade.SetSl(symbol, trade.GetTp1(symbol))
-			log.Printf("%s: Tp1 😎", symbol)
-		}
+		log.Printf("[TP] %s SELL: All targets hit -> closed", symbol)
+		return nil
 	}
-	if err != nil {
-		return err
+	if lastPrice <= tp2 && tp2 != sl {
+		// trail SL to TP2
+		if err := post.ChangeLs(api, symbol, trade.GetTp2(symbol), trade.GetType(symbol), url_bybite); err == nil {
+			trade.SetSl(symbol, trade.GetTp2(symbol))
+			log.Printf("[TP] %s SELL: TP2 hit -> SL moved to TP2", symbol)
+		}
+		return nil
+	}
+	if lastPrice <= tp1 && tp1 != sl {
+		if trade.GetBEAfterTP1(symbol) {
+			be := fmt.Sprintf("%.4f", entry)
+			if err := post.ChangeLs(api, symbol, be, trade.GetType(symbol), url_bybite); err == nil {
+				trade.SetSl(symbol, be)
+				log.Printf("[TP] %s SELL: TP1 hit -> SL moved to BREAKEVEN (%s)", symbol, be)
+			}
+		} else {
+			if err := post.ChangeLs(api, symbol, trade.GetTp1(symbol), trade.GetType(symbol), url_bybite); err == nil {
+				trade.SetSl(symbol, trade.GetTp1(symbol))
+				log.Printf("[TP] %s SELL: TP1 hit -> SL moved to TP1", symbol)
+			}
+		}
+		return nil
 	}
 	return nil
 }

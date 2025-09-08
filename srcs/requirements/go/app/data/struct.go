@@ -27,12 +27,15 @@ type Trade struct {
 	Tp1Order    string   `json:"tp_1Order"`
 	Tp2Order    string   `json:"tp_2Order"`
 	Tp3Order    string   `json:"tp_3Order"`
+	Tp4Order    string   `json:"tp_4Order"` // NEW
 	Tp1         string   `json:"tp1"`
 	Tp2         string   `json:"tp2"`
 	Tp3         string   `json:"tp3"`
+	Tp4         string   `json:"tp4"` // NEW
 	Sl          string   `json:"Sl"`
 	Id          []string `json:"id"`
 	Active      []string `json:"active"`
+	BEAfterTP1  bool     `json:"be_after_tp1"` // NEW
 }
 
 type (
@@ -260,31 +263,65 @@ func GetTrade(symbol string, t *Trades) *Trade {
 	}
 	return nil
 }
-
 func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybit string) bool {
-	wallet := get.GetWallet(api.Api, api.Api_secret, url_bybit)
-	available := wallet.Result.Usdt.AvailableBalance / 3
-	prices, _ := strconv.ParseFloat(price.Result[0].BidPrice, 8)
-	log.Println(print.PrettyPrint(available))
+	// fixed margin per trade from env
+	stakeEnv := os.Getenv("STAKE_USDT")
+	if stakeEnv == "" {
+		stakeEnv = "20"
+	}
+	stake, _ := strconv.ParseFloat(stakeEnv, 8)
+
+	lev, _ := strconv.Atoi(data.Level)
+	if lev <= 0 {
+		lev = 10
+	}
+
+	entry, _ := strconv.ParseFloat(data.Entry, 8)
+
+	// qty = (stake * leverage) / entry
+	qty := (stake * float64(lev)) / entry
+
+	// Split
+	tp1Qty := qty * 0.50
+	tp2Qty := qty * 0.25
+	tp3Qty := qty * 0.15
+	tp4Qty := 0.0
+	if data.Tp4 != "" {
+		tp4Qty = qty * 0.10
+	} else {
+		// if no TP4, distribute 50/30/20
+		tp2Qty = qty * 0.30
+		tp3Qty = qty * 0.20
+	}
+
+	r := func(v float64) string { return RoundFloat(v, 4) }
+
 	elem := Trade{
 		Symbol:      data.Currency,
 		Type:        data.Type,
-		Order:       data.Order,
+		Order:       "Limit",
 		SymbolPrice: price.Result[0].BidPrice,
-		Wallet:      fmt.Sprint(RoundFloat(available, 4)),
+		Wallet:      fmt.Sprint(RoundFloat(stake, 2)), // store margin used
 		Entry:       data.Entry,
-		Leverage:    data.Level,
-		Tp1Order:    RoundFloat((available*50/100)/prices, 4),
-		Tp2Order:    RoundFloat((available*25/100)/prices, 4),
-		Tp3Order:    RoundFloat((available*15/100)/prices, 4),
+		Leverage:    fmt.Sprint(lev),
+		Tp1Order:    r(tp1Qty),
+		Tp2Order:    r(tp2Qty),
+		Tp3Order:    r(tp3Qty),
+		Tp4Order:    r(tp4Qty),
 		Tp1:         data.Tp1,
 		Tp2:         data.Tp2,
 		Tp3:         data.Tp3,
+		Tp4:         data.Tp4,
 		Sl:          data.Sl,
+		BEAfterTP1:  data.BEAfterTP1,
 	}
-	log.Printf("available")
+
+	log.Println("[TRADE.ADD] stake:", stakeEnv, "lev:", lev, "entry:", entry, "qty:", r(qty))
+	log.Println("[TRADE.ADD] qty split:", elem.Tp1Order, elem.Tp2Order, elem.Tp3Order, elem.Tp4Order)
+	log.Println("[TRADE.ADD] tp/SL:", elem.Tp1, elem.Tp2, elem.Tp3, elem.Tp4, "SL:", elem.Sl)
+
 	if t.CheckSymbol(data.Currency) == false {
-		log.Printf("Trade actif Symbol: %s", data.Currency)
+		log.Printf("[TRADE.ADD] Trade already active for %s", data.Currency)
 		return false
 	}
 	*t = append(*t, elem)
@@ -435,6 +472,30 @@ func (t *Trades) GetTp3(symbol string) string {
 		return ret.Tp3
 	}
 	return ""
+}
+
+func (t *Trades) GetTp4(symbol string) string {
+	ret := GetTrade(symbol, t)
+	if ret != nil {
+		return ret.Tp4
+	}
+	return ""
+}
+
+func (t *Trades) GetTp4Order(symbol string) string {
+	ret := GetTrade(symbol, t)
+	if ret != nil {
+		return ret.Tp4Order
+	}
+	return ""
+}
+
+func (t *Trades) GetBEAfterTP1(symbol string) bool {
+	ret := GetTrade(symbol, t)
+	if ret != nil {
+		return ret.BEAfterTP1
+	}
+	return false
 }
 
 func (t *Trades) GetSl(symbol string) string {
