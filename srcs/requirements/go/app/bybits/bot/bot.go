@@ -54,7 +54,7 @@ func BotParseMsg(
 				sending = false
 				order.Botapi.Send(msgs)
 			}
-		} else if strings.Index(msg, " ") == 4 && strings.Compare(msg, "/add ") == 1 && user == adm {
+		} else if strings.HasPrefix(msg, "/add ") && user == adm {
 			if strings.Index(msg, ":") < 0 {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, "Error try again \n/add api:api_secret")
 				if sending == true {
@@ -78,7 +78,7 @@ func BotParseMsg(
 					order.Botapi.Send(msgs)
 				}
 			}
-		} else if strings.Index(msg, " ") == 7 && strings.Compare(msg, "/delete ") == 1 && user == adm {
+		} else if strings.HasPrefix(msg, "/delete ") && user == adm {
 			msg = msg[strings.Index(msg, " ")+1:]
 			sender := api.Delette(msg)
 			err := mysql.DbDelete("api", msg, order.Db)
@@ -95,7 +95,7 @@ func BotParseMsg(
 					order.Botapi.Send(msgs)
 				}
 			}
-		} else if strings.Index(msg, " ") == 9 && strings.Compare(msg, "/addAdmin ") == 1 && user == adm {
+		} else if strings.HasPrefix(msg, "/addAdmin ") && user == adm {
 			admin := msg[strings.Index(msg, " ")+1:]
 			api.AddAdmin(admin)
 			// add api to database
@@ -113,7 +113,7 @@ func BotParseMsg(
 					order.Botapi.Send(msgs)
 				}
 			}
-		} else if strings.Index(msg, " ") == 12 && strings.Compare(msg, "/deleteAdmin ") == 1 && user == adm {
+		} else if strings.HasPrefix(msg, "/deleteAdmin ") && user == adm {
 			msg = msg[strings.Index(msg, " ")+1:]
 			sender := api.DeletteAdmin(msg)
 			err := mysql.DbDeleteAdmin("admin", msg, order.Db)
