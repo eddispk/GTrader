@@ -5,7 +5,7 @@ import "time"
 type Post struct {
 	RetCode int    `json:"ret_code"`
 	RetMsg  string `json:"ret_msg"`
-	ExtCode string `json:"exstrconv.FormatFloat(t_code"`
+	ExtCode string `json:"ext_code"`
 	ExtInfo string `json:"ext_info"`
 	Result  struct {
 		OrderID        string    `json:"order_id"`
