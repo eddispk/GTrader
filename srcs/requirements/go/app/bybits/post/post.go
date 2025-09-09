@@ -124,19 +124,21 @@ func CancelOrder(symbol string, api data.BybitApi, trade *data.Trades, url_bybit
 	return nil
 }
 
-func CancelBySl(price get.Price, trade *data.Trade) string {
-	if len(price.Result.List) == 0 {
+func CancelBySl(px get.Price, tr *data.Trade) string {
+	if len(px.Result.List) == 0 {
 		return ""
 	}
-	bid := price.Result.List[0].Bid1Price
-	if trade.Type == "Buy" {
-		val, _ := strconv.ParseFloat(bid, 32)
-		val = val - (val * 0.01)
-		return fmt.Sprintf("%.4f", val)
-	} else if trade.Type == "Sell" {
-		val, _ := strconv.ParseFloat(bid, 64)
-		val = val - (val * 0.01)
-		return fmt.Sprintf("%.4f", val)
+	pBid := px.Result.List[0].Bid1Price
+	pAsk := px.Result.List[0].Ask1Price
+	if tr.Type == "Buy" {
+		// close long quickly → place SL just below bid
+		bid, _ := strconv.ParseFloat(pBid, 64)
+		return fmt.Sprintf("%.4f", bid*0.99)
+	}
+	if tr.Type == "Sell" {
+		// close short quickly → place SL just above ask
+		ask, _ := strconv.ParseFloat(pAsk, 64)
+		return fmt.Sprintf("%.4f", ask*1.01)
 	}
 	return ""
 }
