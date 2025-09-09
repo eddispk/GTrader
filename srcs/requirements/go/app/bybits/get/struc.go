@@ -41,6 +41,37 @@ type Price struct {
 	} `json:"result"`
 }
 
+type Wallet struct {
+	RetCode    int    `json:"retCode"`
+	RetMsg     string `json:"retMsg"`
+	RetExtInfo any    `json:"retExtInfo"`
+	Time       int64  `json:"time"`
+	Result     struct {
+		List []struct {
+			AccountType            string `json:"accountType"`
+			TotalEquity            string `json:"totalEquity"`
+			TotalWalletBalance     string `json:"totalWalletBalance"`
+			TotalAvailableBalance  string `json:"totalAvailableBalance"`
+			TotalMarginBalance     string `json:"totalMarginBalance"`
+			TotalPerpUPL           string `json:"totalPerpUPL"`
+			TotalInitialMargin     string `json:"totalInitialMargin"`
+			TotalMaintenanceMargin string `json:"totalMaintenanceMargin"`
+			Coin                   []struct {
+				Coin            string `json:"coin"`
+				Equity          string `json:"equity"`
+				WalletBalance   string `json:"walletBalance"`
+				UnrealisedPnl   string `json:"unrealisedPnl"`
+				CumRealisedPnl  string `json:"cumRealisedPnl"`
+				TotalOrderIM    string `json:"totalOrderIM"`
+				TotalPositionIM string `json:"totalPositionIM"`
+				TotalPositionMM string `json:"totalPositionMM"`
+				Locked          string `json:"locked"`
+				UsdValue        string `json:"usdValue"`
+			} `json:"coin"`
+		} `json:"list"`
+	} `json:"result"`
+}
+
 type Position struct {
 	RetCode    int    `json:"retCode"`
 	RetMsg     string `json:"retMsg"`
@@ -82,37 +113,6 @@ type Position struct {
 			IsReduceOnly           bool   `json:"isReduceOnly"`
 			MmrSysUpdateTime       string `json:"mmrSysUpdateTime"`
 			LeverageSysUpdatedTime string `json:"leverageSysUpdatedTime"`
-		} `json:"list"`
-	} `json:"result"`
-}
-
-type Wallet struct {
-	RetCode    int    `json:"retCode"`
-	RetMsg     string `json:"retMsg"`
-	RetExtInfo any    `json:"retExtInfo"`
-	Time       int64  `json:"time"`
-	Result     struct {
-		List []struct {
-			AccountType            string `json:"accountType"`
-			TotalEquity            string `json:"totalEquity"`
-			TotalWalletBalance     string `json:"totalWalletBalance"`
-			TotalAvailableBalance  string `json:"totalAvailableBalance"`
-			TotalMarginBalance     string `json:"totalMarginBalance"`
-			TotalPerpUPL           string `json:"totalPerpUPL"`
-			TotalInitialMargin     string `json:"totalInitialMargin"`
-			TotalMaintenanceMargin string `json:"totalMaintenanceMargin"`
-			Coin                   []struct {
-				Coin            string `json:"coin"`
-				Equity          string `json:"equity"`
-				WalletBalance   string `json:"walletBalance"`
-				UnrealisedPnl   string `json:"unrealisedPnl"`
-				CumRealisedPnl  string `json:"cumRealisedPnl"`
-				TotalOrderIM    string `json:"totalOrderIM"`
-				TotalPositionIM string `json:"totalPositionIM"`
-				TotalPositionMM string `json:"totalPositionMM"`
-				Locked          string `json:"locked"`
-				UsdValue        string `json:"usdValue"`
-			} `json:"coin"`
 		} `json:"list"`
 	} `json:"result"`
 }

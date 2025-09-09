@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -142,17 +143,29 @@ func (t *Bot) CheckPositon(pos get.Position) {
 	if len(pos.Result.List) == 0 {
 		return
 	}
-	// mark active if there is any non-empty position data
-	active := false
+	parse := func(s string) float64 {
+		f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+		return f
+	}
+
+	// v5: position list items are strings; consider a position "open" if any
+	// leg has size > 0 (primary signal). We also allow avg/liq/bust > 0 as a fallback.
+	hasOpen := false
+	sym := pos.Result.List[0].Symbol
 	for _, p := range pos.Result.List {
-		if p.AvgPrice != "" || p.LiqPrice != "" || p.BustPrice != "" {
-			active = true
+		if p.Size != "" && p.Size != "0" && p.Size != "0.0000" {
+			hasOpen = true
+			break
+		}
+		if parse(p.Size) > 0 || parse(p.AvgPrice) > 0 || parse(p.LiqPrice) > 0 || parse(p.BustPrice) > 0 {
+			hasOpen = true
 			break
 		}
 	}
-	for i := range (*t).Active {
-		if (*t).Active[i].Symbol == pos.Result.List[0].Symbol {
-			(*t).Active[i].Active = active
+
+	for i := range t.Active {
+		if t.Active[i].Symbol == sym {
+			t.Active[i].Active = hasOpen
 		}
 	}
 }
@@ -264,6 +277,7 @@ func GetTrade(symbol string, t *Trades) *Trade {
 	}
 	return nil
 }
+
 func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybit string) bool {
 	// fixed margin per trade from env
 	stakeEnv := os.Getenv("STAKE_USDT")
@@ -294,6 +308,49 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 		tp2Qty = qty * 0.30
 		tp3Qty = qty * 0.20
 	}
+
+	// --- NEW: get filters and quantize ---
+	inst, _ := get.GetInstrument(url_bybit, data.Currency)
+	qtyStep, minQty, tick := 0.0, 0.0, 0.0
+	if inst.RetCode == 0 && len(inst.Result.List) > 0 {
+		f := inst.Result.List[0]
+		qtyStep = parseF(f.LotSizeFilter.QtyStep)
+		minQty = parseF(f.LotSizeFilter.MinOrderQty)
+		tick = parseF(f.PriceFilter.TickSize)
+	}
+
+	// Quantize prices
+	entry = RoundFloatF(RoundToTick(entry, tick), 6) // store as string later
+	tp1 := RoundToTick(parseF(data.Tp1), tick)
+	tp2 := RoundToTick(parseF(data.Tp2), tick)
+	tp3 := RoundToTick(parseF(data.Tp3), tick)
+	tp4 := RoundToTick(parseF(data.Tp4), tick)
+	sl := RoundToTick(parseF(data.Sl), tick)
+
+	// Recompute strings with tick applied
+	data.Entry = RoundFloat(tp(entry), 6) // see helper below, or fmt.Sprintf
+	data.Tp1 = RoundFloat(tp1, 6)
+	data.Tp2 = RoundFloat(tp2, 6)
+	data.Tp3 = RoundFloat(tp3, 6)
+	if data.Tp4 != "" {
+		data.Tp4 = RoundFloat(tp4, 6)
+	}
+	data.Sl = RoundFloat(sl, 6)
+
+	// Snap qty splits to qtyStep and enforce minQty
+	snap := func(q float64) float64 {
+		if qtyStep > 0 {
+			q = RoundDownToStep(q, qtyStep)
+		}
+		if minQty > 0 && q > 0 && q < minQty {
+			q = minQty
+		}
+		return q
+	}
+	tp1Qty = snap(tp1Qty)
+	tp2Qty = snap(tp2Qty)
+	tp3Qty = snap(tp3Qty)
+	tp4Qty = snap(tp4Qty)
 
 	r := func(v float64) string { return RoundFloat(v, 3) }
 
@@ -342,6 +399,29 @@ func (t *Trades) Delete(symbol string) bool {
 	*t = *tmp
 	return check != 1
 }
+
+func RoundDownToStep(x, step float64) float64 {
+	if step <= 0 {
+		return x
+	}
+	return math.Floor(x/step) * step
+}
+func RoundToTick(x, tick float64) float64 {
+	if tick <= 0 {
+		return x
+	}
+	// Bybit usually wants prices on tick; round to nearest
+	return math.Round(x/tick) * tick
+}
+
+func parseF(s string) float64 { v, _ := strconv.ParseFloat(s, 64); return v }
+
+func RoundFloatF(val float64, precision uint) float64 {
+	ratio := math.Pow(10, float64(precision))
+	return math.Round(val*ratio) / ratio
+}
+
+func tp(x float64) float64 { return x }
 
 func (t *Trades) Print() {
 	ls := *t

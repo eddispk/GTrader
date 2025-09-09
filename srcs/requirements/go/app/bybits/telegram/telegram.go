@@ -94,7 +94,7 @@ func FuturParse(msg string, debug bool, data Data) (Data, error) {
 		}
 
 		// 4) Targets: comma list (TP1..TP4)
-		if strings.HasPrefix(low, "targets") && strings.Contains(l, ":") {
+		if strings.Contains(low, "targets") && strings.Contains(l, ":") {
 			trg := strings.TrimSpace(l[strings.Index(l, ":")+1:])
 			parts := strings.Split(trg, ",")
 			if len(parts) > 0 {
@@ -114,7 +114,7 @@ func FuturParse(msg string, debug bool, data Data) (Data, error) {
 		}
 
 		// 5) Stop or SL
-		if (strings.HasPrefix(low, "stop") || strings.HasPrefix(low, "sl")) && strings.Contains(l, ":") {
+		if (strings.Contains(low, "stop") || strings.Contains(low, "sl")) && strings.Contains(l, ":") {
 			data.Sl = strings.TrimSpace(l[strings.Index(l, ":")+1:])
 			log.Println("[PARSER] stop:", data.Sl)
 			continue
