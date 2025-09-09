@@ -50,14 +50,14 @@ func BotParseMsg(
 				"/addAdmin login\n",
 				"/deleteAdmin login")
 			msgs := tgbotapi.NewMessage(update.Message.Chat.ID, sender)
-			if sending == true {
+			if sending {
 				sending = false
 				order.Botapi.Send(msgs)
 			}
 		} else if strings.HasPrefix(msg, "/add ") && user == adm {
 			if strings.Index(msg, ":") < 0 {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, "Error try again \n/add api:api_secret")
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
@@ -67,13 +67,13 @@ func BotParseMsg(
 				api_secret := msg[strings.Index(msg, ":")+1:]
 				api.AddApi(api_bybit, api_secret)
 				// add api to database
-				if mysql.CheckApi("db.api", order.Db, api_bybit) == true {
+				if mysql.CheckApi("db.api", order.Db, api_bybit) {
 					mysql.InsertApi(api_bybit, api_secret, "api", order.Db)
 					msgs = tgbotapi.NewMessage(update.Message.Chat.ID, "Api add")
 				} else {
 					msgs = tgbotapi.NewMessage(update.Message.Chat.ID, "Api are already add")
 				}
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
@@ -84,13 +84,13 @@ func BotParseMsg(
 			err := mysql.DbDelete("api", msg, order.Db)
 			if err != nil {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, sender)
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
 			} else {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, sender)
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
@@ -99,16 +99,16 @@ func BotParseMsg(
 			admin := msg[strings.Index(msg, " ")+1:]
 			api.AddAdmin(admin)
 			// add api to database
-			if mysql.CheckAdmin("db.admin", order.Db, admin) == true {
+			if mysql.CheckAdmin("db.admin", order.Db, admin) {
 				mysql.InsertAdmin(admin, "admin", order.Db)
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, "Admin add")
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
 			} else {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, "Api are already add")
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
@@ -119,18 +119,18 @@ func BotParseMsg(
 			err := mysql.DbDeleteAdmin("admin", msg, order.Db)
 			if err != nil {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, sender)
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
 			} else {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, sender)
-				if sending == true {
+				if sending {
 					sending = false
 					order.Botapi.Send(msgs)
 				}
 			}
-		} else if sending == true {
+		} else if sending {
 			SendMsg(msg, api.IdCHannel, *api)
 			sending = false
 		}

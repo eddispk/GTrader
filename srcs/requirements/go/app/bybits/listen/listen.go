@@ -4,7 +4,6 @@ import (
 	"bot/bybits/get"
 	"bot/bybits/post"
 	"bot/bybits/print"
-	"bot/bybits/sign"
 	"bot/data"
 	"encoding/json"
 	"fmt"
@@ -17,23 +16,11 @@ import (
 
 func GetPosition(api data.BybitApi, symbol string, url_bybite string) (get.Position, error) {
 	var position get.Position
-	params := map[string]string{
-		"api_key":   api.Api,
-		"symbol":    symbol,
-		"timestamp": print.GetTimestamp(),
+	q := map[string]string{
+		"category": "linear",
+		"symbol":   symbol,
 	}
-	params["sign"] = sign.GetSigned(params, api.Api_secret)
-	url := fmt.Sprint(
-		url_bybite,
-		"/private/linear/position/list?api_key=",
-		params["api_key"],
-		"&symbol=", symbol,
-		"&timestamp=",
-		params["timestamp"],
-		"&sign=",
-		params["sign"],
-	)
-	body, err := get.GetRequetJson(url)
+	body, err := get.PrivateGET(url_bybite, "/v5/position/list", q, api.Api, api.Api_secret)
 	if err != nil {
 		log.Println(err)
 		return position, err
@@ -44,7 +31,7 @@ func GetPosition(api data.BybitApi, symbol string, url_bybite string) (get.Posit
 
 func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url_bybite string) error {
 	price := get.GetPrice(symbol, url_bybite)
-	lastPrice, _ := strconv.ParseFloat(price.Result[0].LastPrice, 64)
+	lastPrice, _ := strconv.ParseFloat(price.Result.List[0].LastPrice, 64)
 	sl, _ := strconv.ParseFloat(trade.GetSl(symbol), 64)
 	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
 	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)
@@ -91,7 +78,7 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 
 func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url_bybite string) error {
 	price := get.GetPrice(symbol, url_bybite)
-	lastPrice, _ := strconv.ParseFloat(price.Result[0].LastPrice, 64)
+	lastPrice, _ := strconv.ParseFloat(price.Result.List[0].LastPrice, 64)
 	sl, _ := strconv.ParseFloat(trade.GetSl(symbol), 64)
 	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
 	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)

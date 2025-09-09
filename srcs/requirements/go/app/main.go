@@ -23,9 +23,9 @@ func run(updates tgbotapi.UpdatesChannel, order *data.Bot, api *data.Env, trade 
 			dataBybite, err := telegram.ParseMsg(msg, order.Debeug)
 			if err == nil && dataBybite.Trade {
 				price := get.GetPrice(dataBybite.Currency, api.Url)
-				if price.RetCode == 0 && price.Result[0].BidPrice != "" {
+				if price.RetCode == 0 && len(price.Result.List) > 0 && price.Result.List[0].Bid1Price != "" {
 					for _, apis := range api.Api {
-						if trade.Add(apis, dataBybite, price, api.Url) == true {
+						if trade.Add(apis, dataBybite, price, api.Url) {
 							post.PostIsoled(apis, dataBybite.Currency, trade, api.Url, order.Debeug)
 							err = post.PostOrder(dataBybite.Currency, apis, trade, api.Url, order.Debeug)
 							if err != nil {

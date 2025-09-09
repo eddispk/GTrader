@@ -3,208 +3,161 @@ package post
 import (
 	"bot/bybits/get"
 	"bot/bybits/print"
-	"bot/bybits/sign"
 	"bot/data"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
+	"maps"
 	"strconv"
 )
 
+// CHANGE: PostOrder -> v5 /v5/order/create with tpslMode=Partial
 func PostOrder(symbol string, api data.BybitApi, trade *data.Trades, url_bybit string, debug bool) error {
-	params := map[string]interface{}{
-		"api_key":          api.Api,
-		"side":             trade.GetType(symbol),
-		"symbol":           symbol,
-		"order_type":       "Limit",
-		"price":            trade.GetEntry(symbol),
-		"time_in_force":    "GoodTillCancel",
-		"reduce_only":      false,
-		"close_on_trigger": false,
-		"stop_loss":        trade.GetSl(symbol),
+	baseBody := map[string]interface{}{
+		"category":       "linear",
+		"symbol":         symbol,
+		"side":           trade.GetType(symbol), // Buy|Sell
+		"orderType":      "Limit",
+		"price":          trade.GetEntry(symbol),
+		"timeInForce":    "GTC", // v5
+		"reduceOnly":     false,
+		"closeOnTrigger": false,
+		"stopLoss":       trade.GetSl(symbol),
+		"tpslMode":       "Partial", // each split gets its own TP
+		"positionIdx":    0,         // one-way mode default
 	}
 
 	tps := []struct{ tp, qty string }{
 		{trade.GetTp1(symbol), trade.GetTp1Order(symbol)},
 		{trade.GetTp2(symbol), trade.GetTp2Order(symbol)},
 		{trade.GetTp3(symbol), trade.GetTp3Order(symbol)},
-		{trade.GetTp4(symbol), trade.GetTp4Order(symbol)}, // may be empty/zero
+		{trade.GetTp4(symbol), trade.GetTp4Order(symbol)},
 	}
 
 	for i, x := range tps {
 		if x.tp != "" && x.qty != "" && x.qty != "0" && x.qty != "0.0000" {
-			log.Printf("[ORDER] Creating TP%d order: tp=%s qty=%s entry=%s sl=%s side=%s",
-				i+1, x.tp, x.qty, trade.GetEntry(symbol), trade.GetSl(symbol), trade.GetType(symbol))
-			if _, err := sendPost(params, x.tp, api, trade, x.qty, url_bybit, debug); err != nil {
+			body := maps.Clone(baseBody) // Go 1.21; if not available, copy manually
+			body["takeProfit"] = x.tp
+			body["qty"] = x.qty
+
+			if debug {
+				log.Printf("[ORDER] TP%d body: %s", i+1, print.PrettyPrint(body))
+			}
+
+			respBytes, err := get.PrivatePOST(url_bybit, "/v5/order/create", body, api.Api, api.Api_secret)
+			if err != nil {
 				return err
 			}
+			var res Post
+			if err := json.Unmarshal(respBytes, &res); err != nil {
+				return err
+			}
+			if res.RetCode != 0 {
+				return errors.New(res.RetMsg)
+			}
+			trade.SetId(symbol, res.Result.OrderID)
 		}
 	}
 	return nil
 }
 
-func sendPost(
-	params map[string]interface{},
-	tp string,
-	api data.BybitApi,
-	trade *data.Trades,
-	order string,
-	url_bybit string,
-	debug bool,
-) (*http.Response, error) {
-	var res Post
-
-	params["take_profit"] = tp
-	params["qty"] = order
-	params["timestamp"] = print.GetTimestamp()
-	params["sign"] = sign.GetSignedinter(params, api.Api_secret)
-	json_data, err := json.Marshal(params)
-	if err != nil {
-		return nil, err
-	}
-	if debug {
-		println(print.PrettyPrint(params))
-	}
-	url := fmt.Sprint(url_bybit, "/private/linear/order/create")
-	req, err := http.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(json_data),
-	)
-	if err != nil {
-		return req, err
-	}
-	json.NewDecoder(req.Body).Decode(&res)
-	if res.RetCode != 0 {
-		return nil, errors.New(res.RetMsg)
-	}
-	log.Println(print.PrettyPrint(res))
-	trade.SetId(params["symbol"].(string), res.Result.OrderID)
-	delete(params, "sign")
-	delete(params, "take_profit")
-	delete(params, "qty")
-	delete(params, "timestamp")
-	return req, nil
-}
-
+// CHANGE: PostIsoled -> v5 /v5/position/switch-isolated + set-leverage
 func PostIsoled(api data.BybitApi, symbol string, trade *data.Trades, url_bybit string, debug bool) error {
-	var isolated Isolated
 	levStr := trade.GetLeverage(symbol)
 	lev, _ := strconv.Atoi(levStr)
 	if lev <= 0 {
 		lev = 10
 	}
 
-	params := map[string]interface{}{
-		"api_key":       api.Api,
-		"symbol":        symbol,
-		"is_isolated":   true,
-		"buy_leverage":  lev,
-		"sell_leverage": lev,
-		"timestamp":     print.GetTimestamp(),
+	// 1) switch isolated
+	body := map[string]interface{}{
+		"category":     "linear",
+		"symbol":       symbol,
+		"tradeMode":    1, // 1 = isolated
+		"buyLeverage":  fmt.Sprint(lev),
+		"sellLeverage": fmt.Sprint(lev),
 	}
-	params["sign"] = sign.GetSignedinter(params, api.Api_secret)
-	json_data, err := json.Marshal(params)
+	resp1, err := get.PrivatePOST(url_bybit, "/v5/position/switch-isolated", body, api.Api, api.Api_secret)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprint(url_bybit, "/private/linear/position/switch-isolated")
-	req, err := http.Post(url, "application/json", bytes.NewBuffer(json_data))
-	if err != nil {
-		return err
-	}
-	json.NewDecoder(req.Body).Decode(&isolated)
 	if debug {
-		log.Printf("[POST] PostIsoled resp: %s", print.PrettyPrint(isolated))
+		log.Printf("[POST] switch-isolated: %s", string(resp1))
 	}
+
+	// 2) set leverage (required by docs to ensure leverage is applied)
+	body2 := map[string]interface{}{
+		"category":     "linear",
+		"symbol":       symbol,
+		"buyLeverage":  fmt.Sprint(lev),
+		"sellLeverage": fmt.Sprint(lev),
+	}
+	resp2, err := get.PrivatePOST(url_bybit, "/v5/position/set-leverage", body2, api.Api, api.Api_secret)
+	if err != nil {
+		return err
+	}
+	if debug {
+		log.Printf("[POST] set-leverage: %s", string(resp2))
+	}
+
 	log.Printf("[POST] Isolated ON, leverage=%d", lev)
 	return nil
 }
 
+// CHANGE: CancelOrder / CancelAll -> v5 /v5/order/cancel-all
 func CancelOrder(symbol string, api data.BybitApi, trade *data.Trades, url_bybit string) error {
-	params := map[string]string{
-		"api_key": api.Api,
-		"symbol":  symbol,
-	}
-	err := PostCancelOrder(params, api, url_bybit)
+
+	var cancel PostCancel
+	b := map[string]interface{}{"category": "linear", "symbol": symbol}
+	raw, err := get.PrivatePOST(url_bybit, "/v5/order/cancel-all", b, api.Api, api.Api_secret)
 	if err != nil {
 		return err
+	}
+	if err := json.Unmarshal(raw, &cancel); err != nil {
+		return err
+	}
+	if cancel.RetCode != 0 {
+		return errors.New(cancel.RetMsg)
 	}
 	log.Printf("Cancel order success: %s", symbol)
 	return nil
 }
 
-func PostCancelOrder(params map[string]string, api data.BybitApi, url_bybit string) error {
-	var cancel PostCancel
-
-	params["timestamp"] = print.GetTimestamp()
-	params["sign"] = sign.GetSigned(params, api.Api_secret)
-	json_data, err := json.Marshal(params)
-	if err != nil {
-		return err
-	}
-	delete(params, "sign")
-	url := fmt.Sprint(url_bybit, "/private/linear/order/cancel-all")
-	req, err := http.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(json_data))
-	if err != nil {
-		return err
-	}
-	json.NewDecoder(req.Body).Decode(&cancel)
-	log.Println(print.PrettyPrint(cancel))
-	if cancel.RetCode != 0 {
-		return errors.New(cancel.RetMsg)
-	}
-	return nil
-}
-
 func CancelBySl(price get.Price, trade *data.Trade) string {
+	if len(price.Result.List) == 0 {
+		return ""
+	}
+	bid := price.Result.List[0].Bid1Price
 	if trade.Type == "Buy" {
-		log.Println(print.PrettyPrint(price))
-		val, _ := strconv.ParseFloat(price.Result[0].BidPrice, 4)
+		val, _ := strconv.ParseFloat(bid, 32)
 		val = val - (val * 0.01)
 		return fmt.Sprintf("%.4f", val)
 	} else if trade.Type == "Sell" {
-		val, _ := strconv.ParseFloat(price.Result[0].BidPrice, 8)
+		val, _ := strconv.ParseFloat(bid, 64)
 		val = val - (val * 0.01)
 		return fmt.Sprintf("%.4f", val)
 	}
 	return ""
 }
 
+// CHANGE: ChangeLs -> v5 /v5/position/trading-stop
 func ChangeLs(api data.BybitApi, symbol string, sl string, side string, url_bybit string) error {
-	var stop StopLoss
-	log.Println(symbol)
-	log.Println(sl)
-	log.Println(side)
-	params := map[string]string{
-		"api_key":   api.Api,
-		"symbol":    symbol,
-		"side":      side,
-		"stop_loss": sl,
-		"timestamp": print.GetTimestamp(),
+	body := map[string]interface{}{
+		"category":    "linear",
+		"symbol":      symbol,
+		"tpslMode":    "Full",
+		"positionIdx": 0,
+		"stopLoss":    sl,
 	}
-	params["sign"] = sign.GetSigned(params, api.Api_secret)
-	json_data, err := json.Marshal(params)
+	raw, err := get.PrivatePOST(url_bybit, "/v5/position/trading-stop", body, api.Api, api.Api_secret)
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprint(url_bybit, "/private/linear/position/trading-stop")
-	req, err := http.Post(
-		url,
-		"application/json",
-		bytes.NewBuffer(json_data),
-	)
-	if err != nil {
+	var res EmptyResult
+	if err := json.Unmarshal(raw, &res); err != nil {
 		return err
 	}
-	json.NewDecoder(req.Body).Decode(&stop)
-	log.Print("ChangeLs:")
-	log.Println(print.PrettyPrint(stop))
+	log.Printf("[ChangeLs] %s", print.PrettyPrint(res))
 	return nil
 }

@@ -80,7 +80,7 @@ func (t *Env) AddApi(api string, api_secret string) {
 			check = true
 		}
 	}
-	if check == false {
+	if !check {
 		(*t).Api = append((*t).Api, elem)
 	}
 }
@@ -98,7 +98,7 @@ func (t *Env) Delette(api string) string {
 		}
 	}
 	(*t).Api = tmp
-	if ret == false {
+	if !ret {
 		return "Api not found cannot be deletted"
 	}
 	return "Api deletted"
@@ -117,7 +117,7 @@ func (t *Env) DeletteAdmin(adm string) string {
 		}
 	}
 	(*t).Admin = tmp
-	if ret == false {
+	if !ret {
 		return "Admin not found cannot be deletted"
 	}
 	return "Admin deletted"
@@ -139,19 +139,20 @@ func (t *Bot) NewBot(api *Env, debeug bool) error {
 }
 
 func (t *Bot) CheckPositon(pos get.Position) {
-	if len(pos.Result) > 0 {
-		if pos.Result[0].EntryPrice > 0 || pos.Result[1].EntryPrice > 0 ||
-			pos.Result[0].LiqPrice > 0 || pos.Result[1].LiqPrice > 0 ||
-			pos.Result[0].BustPrice > 0 || pos.Result[1].BustPrice > 0 {
-			log.Print("Entry PRice ok")
-			for i := 0; i < len((*t).Active); i++ {
-				if (*t).Active[i].Symbol == pos.Result[0].Symbol {
-					(*t).Active[i].Active = true
-					log.Print("Trade actif")
-				} else {
-					(*t).Active[i].Active = false
-				}
-			}
+	if len(pos.Result.List) == 0 {
+		return
+	}
+	// mark active if there is any non-empty position data
+	active := false
+	for _, p := range pos.Result.List {
+		if p.AvgPrice != "" || p.LiqPrice != "" || p.BustPrice != "" {
+			active = true
+			break
+		}
+	}
+	for i := range (*t).Active {
+		if (*t).Active[i].Symbol == pos.Result.List[0].Symbol {
+			(*t).Active[i].Active = active
 		}
 	}
 }
@@ -269,14 +270,14 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 	if stakeEnv == "" {
 		stakeEnv = "20"
 	}
-	stake, _ := strconv.ParseFloat(stakeEnv, 8)
+	stake, _ := strconv.ParseFloat(stakeEnv, 64)
 
 	lev, _ := strconv.Atoi(data.Level)
 	if lev <= 0 {
 		lev = 10
 	}
 
-	entry, _ := strconv.ParseFloat(data.Entry, 8)
+	entry, _ := strconv.ParseFloat(data.Entry, 64)
 
 	// qty = (stake * leverage) / entry
 	qty := (stake * float64(lev)) / entry
@@ -294,13 +295,13 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 		tp3Qty = qty * 0.20
 	}
 
-	r := func(v float64) string { return RoundFloat(v, 4) }
+	r := func(v float64) string { return RoundFloat(v, 3) }
 
 	elem := Trade{
 		Symbol:      data.Currency,
 		Type:        data.Type,
 		Order:       "Limit",
-		SymbolPrice: price.Result[0].BidPrice,
+		SymbolPrice: price.Result.List[0].Bid1Price,
 		Wallet:      fmt.Sprint(RoundFloat(stake, 2)), // store margin used
 		Entry:       data.Entry,
 		Leverage:    fmt.Sprint(lev),
@@ -320,7 +321,7 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 	log.Println("[TRADE.ADD] qty split:", elem.Tp1Order, elem.Tp2Order, elem.Tp3Order, elem.Tp4Order)
 	log.Println("[TRADE.ADD] tp/SL:", elem.Tp1, elem.Tp2, elem.Tp3, elem.Tp4, "SL:", elem.Sl)
 
-	if t.CheckSymbol(data.Currency) == false {
+	if !t.CheckSymbol(data.Currency) {
 		log.Printf("[TRADE.ADD] Trade already active for %s", data.Currency)
 		return false
 	}
@@ -339,10 +340,7 @@ func (t *Trades) Delete(symbol string) bool {
 		}
 	}
 	*t = *tmp
-	if check == 1 {
-		return false
-	}
-	return true
+	return check != 1
 }
 
 func (t *Trades) Print() {
@@ -528,23 +526,23 @@ func (t *Env) AddAdmin(admin string) {
 func GetEnv(env *Env) error {
 	api := os.Getenv("API")
 	if api == "" {
-		return errors.New("Api not found")
+		return errors.New("api not found")
 	}
 	api_secret := os.Getenv("API_SECRET")
 	if api_secret == "" {
-		return errors.New("Api_secret not found")
+		return errors.New("api_secret not found")
 	}
 	env.Api_telegram = os.Getenv("API_TELEGRAM")
 	if env.Api_telegram == "" {
-		return errors.New("Api_telegram not found")
+		return errors.New("api_telegram not found")
 	}
 	env.Url = os.Getenv("URL")
 	if env.Url == "" {
-		return errors.New("Url not found")
+		return errors.New("url not found")
 	}
 	admin := os.Getenv("ADMIN")
 	if admin == "" {
-		return errors.New("Admin not found")
+		return errors.New("admin not found")
 	}
 	env.BotName = os.Getenv("BOT_NAME")
 	if env.BotName == "" {
@@ -554,7 +552,7 @@ func GetEnv(env *Env) error {
 	log.Println("env id ")
 	log.Println(env.IdCHannel)
 	if env.IdCHannel == "" {
-		return errors.New("Your channel name not found")
+		return errors.New("your channel name not found")
 	}
 	env.AddAdmin(admin)
 	env.AddApi(api, api_secret)

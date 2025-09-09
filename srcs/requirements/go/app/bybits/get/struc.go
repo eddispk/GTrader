@@ -3,105 +3,118 @@ package get
 import "time"
 
 type Price struct {
-	RetCode int    `json:"ret_code"`
-	RetMsg  string `json:"ret_msg"`
-	ExtCode string `json:"ext_code"`
-	ExtInfo string `json:"ext_info"`
-	Result  []struct {
-		Symbol                 string    `json:"symbol"`
-		BidPrice               string    `json:"bid_price"`
-		AskPrice               string    `json:"ask_price"`
-		LastPrice              string    `json:"last_price"`
-		LastTickDirection      string    `json:"last_tick_direction"`
-		PrevPrice24H           string    `json:"prev_price_24h"`
-		Price24HPcnt           string    `json:"price_24h_pcnt"`
-		HighPrice24H           string    `json:"high_price_24h"`
-		LowPrice24H            string    `json:"low_price_24h"`
-		PrevPrice1H            string    `json:"prev_price_1h"`
-		Price1HPcnt            string    `json:"price_1h_pcnt"`
-		MarkPrice              string    `json:"mark_price"`
-		IndexPrice             string    `json:"index_price"`
-		OpenInterest           float64   `json:"open_interest"`
-		OpenValue              string    `json:"open_value"`
-		TotalTurnover          string    `json:"total_turnover"`
-		Turnover24H            string    `json:"turnover_24h"`
-		TotalVolume            float64   `json:"total_volume"`
-		Volume24H              float64   `json:"volume_24h"`
-		FundingRate            string    `json:"funding_rate"`
-		PredictedFundingRate   string    `json:"predicted_funding_rate"`
-		NextFundingTime        time.Time `json:"next_funding_time"`
-		CountdownHour          int       `json:"countdown_hour"`
-		DeliveryFeeRate        string    `json:"delivery_fee_rate"`
-		PredictedDeliveryPrice string    `json:"predicted_delivery_price"`
-		DeliveryTime           string    `json:"delivery_time"`
+	RetCode    int    `json:"retCode"`
+	RetMsg     string `json:"retMsg"`
+	RetExtInfo any    `json:"retExtInfo"`
+	Time       int64  `json:"time"`
+	Result     struct {
+		Category string `json:"category"`
+		List     []struct {
+			Symbol                 string `json:"symbol"`
+			LastPrice              string `json:"lastPrice"`
+			IndexPrice             string `json:"indexPrice"`
+			MarkPrice              string `json:"markPrice"`
+			PrevPrice24h           string `json:"prevPrice24h"`
+			Price24hPcnt           string `json:"price24hPcnt"`
+			HighPrice24h           string `json:"highPrice24h"`
+			LowPrice24h            string `json:"lowPrice24h"`
+			PrevPrice1h            string `json:"prevPrice1h"`
+			OpenInterest           string `json:"openInterest"`
+			OpenInterestValue      string `json:"openInterestValue"`
+			Turnover24h            string `json:"turnover24h"`
+			Volume24h              string `json:"volume24h"`
+			FundingRate            string `json:"fundingRate"`
+			NextFundingTime        string `json:"nextFundingTime"`
+			PredictedDeliveryPrice string `json:"predictedDeliveryPrice"`
+			BasisRate              string `json:"basisRate"`
+			Basis                  string `json:"basis"`
+			DeliveryFeeRate        string `json:"deliveryFeeRate"`
+			DeliveryTime           string `json:"deliveryTime"`
+			Ask1Size               string `json:"ask1Size"`
+			Bid1Price              string `json:"bid1Price"`
+			Ask1Price              string `json:"ask1Price"`
+			Bid1Size               string `json:"bid1Size"`
+			PreOpenPrice           string `json:"preOpenPrice"`
+			PreQty                 string `json:"preQty"`
+			CurPreListingPhase     string `json:"curPreListingPhase"`
+		} `json:"list"`
 	} `json:"result"`
-	TimeNow string `json:"time_now"`
-}
-
-type Wallet struct {
-	RetCode int    `json:"ret_code"`
-	RetMsg  string `json:"ret_msg"`
-	ExtCode string `json:"ext_code"`
-	ExtInfo string `json:"ext_info"`
-	Result  struct {
-		Usdt struct {
-			Equity           float64 `json:"equity"`
-			AvailableBalance float64 `json:"available_balance"`
-			UsedMargin       float64 `json:"used_margin"`
-			OrderMargin      float64 `json:"order_margin"`
-			PositionMargin   float64 `json:"position_margin"`
-			OccClosingFee    float64 `json:"occ_closing_fee"`
-			OccFundingFee    float64 `json:"occ_funding_fee"`
-			WalletBalance    float64 `json:"wallet_balance"`
-			RealisedPnl      float64 `json:"realised_pnl"`
-			UnrealisedPnl    float64 `json:"unrealised_pnl"`
-			CumRealisedPnl   float64 `json:"cum_realised_pnl"`
-			GivenCash        float64 `json:"given_cash"`
-			ServiceCash      float64 `json:"service_cash"`
-		} `json:"USDT"`
-	} `json:"result"`
-	TimeNow         string `json:"time_now"`
-	RateLimitStatus int    `json:"rate_limit_status"`
 }
 
 type Position struct {
-	RetCode int    `json:"ret_code"`
-	RetMsg  string `json:"ret_msg"`
-	ExtCode string `json:"ext_code"`
-	ExtInfo string `json:"ext_info"`
-	Result  []struct {
-		UserID              int     `json:"user_id"`
-		Symbol              string  `json:"symbol"`
-		Side                string  `json:"side"`
-		Size                int     `json:"size"`
-		PositionValue       int     `json:"position_value"`
-		EntryPrice          int     `json:"entry_price"`
-		LiqPrice            int     `json:"liq_price"`
-		BustPrice           int     `json:"bust_price"`
-		Leverage            int     `json:"leverage"`
-		AutoAddMargin       int     `json:"auto_add_margin"`
-		IsIsolated          bool    `json:"is_isolated"`
-		PositionMargin      int     `json:"position_margin"`
-		OccClosingFee       int     `json:"occ_closing_fee"`
-		RealisedPnl         int     `json:"realised_pnl"`
-		CumRealisedPnl      float64 `json:"cum_realised_pnl"`
-		FreeQty             int     `json:"free_qty"`
-		TpSlMode            string  `json:"tp_sl_mode"`
-		UnrealisedPnl       int     `json:"unrealised_pnl"`
-		DeleverageIndicator int     `json:"deleverage_indicator"`
-		RiskID              int     `json:"risk_id"`
-		StopLoss            int     `json:"stop_loss"`
-		TakeProfit          int     `json:"take_profit"`
-		TrailingStop        int     `json:"trailing_stop"`
-		PositionIdx         int     `json:"position_idx"`
-		Mode                string  `json:"mode"`
-		TpTriggerBy         int     `json:"tp_trigger_by,omitempty"`
-		SlTriggerBy         int     `json:"sl_trigger_by,omitempty"`
+	RetCode    int    `json:"retCode"`
+	RetMsg     string `json:"retMsg"`
+	RetExtInfo any    `json:"retExtInfo"`
+	Time       int64  `json:"time"`
+	Result     struct {
+		Category       string `json:"category"`
+		NextPageCursor string `json:"nextPageCursor"`
+		List           []struct {
+			PositionIdx            int    `json:"positionIdx"`
+			Symbol                 string `json:"symbol"`
+			Side                   string `json:"side"` // Buy|Sell
+			Size                   string `json:"size"`
+			AvgPrice               string `json:"avgPrice"`
+			PositionValue          string `json:"positionValue"`
+			TradeMode              int    `json:"tradeMode"`
+			AutoAddMargin          int    `json:"autoAddMargin"`
+			PositionStatus         string `json:"positionStatus"`
+			Leverage               string `json:"leverage"`
+			MarkPrice              string `json:"markPrice"`
+			LiqPrice               string `json:"liqPrice"`
+			BustPrice              string `json:"bustPrice"`
+			PositionIM             string `json:"positionIM"`
+			PositionIMByMp         string `json:"positionIMByMp"`
+			PositionMM             string `json:"positionMM"`
+			PositionMMByMp         string `json:"positionMMByMp"`
+			PositionBalance        string `json:"positionBalance"`
+			TakeProfit             string `json:"takeProfit"`
+			StopLoss               string `json:"stopLoss"`
+			TrailingStop           string `json:"trailingStop"`
+			SessionAvgPrice        string `json:"sessionAvgPrice"`
+			UnrealisedPnl          string `json:"unrealisedPnl"`
+			CurRealisedPnl         string `json:"curRealisedPnl"`
+			CumRealisedPnl         string `json:"cumRealisedPnl"`
+			AdlRankIndicator       int    `json:"adlRankIndicator"`
+			CreatedTime            string `json:"createdTime"`
+			UpdatedTime            string `json:"updatedTime"`
+			Seq                    int64  `json:"seq"`
+			IsReduceOnly           bool   `json:"isReduceOnly"`
+			MmrSysUpdateTime       string `json:"mmrSysUpdateTime"`
+			LeverageSysUpdatedTime string `json:"leverageSysUpdatedTime"`
+		} `json:"list"`
 	} `json:"result"`
-	TimeNow          string `json:"time_now"`
-	RateLimitStatus  int    `json:"rate_limit_status"`
-	RateLimitResetMs int64  `json:"rate_limit_reset_ms"`
-	RateLimit        int    `json:"rate_limit"`
+}
+
+type Wallet struct {
+	RetCode    int    `json:"retCode"`
+	RetMsg     string `json:"retMsg"`
+	RetExtInfo any    `json:"retExtInfo"`
+	Time       int64  `json:"time"`
+	Result     struct {
+		List []struct {
+			AccountType            string `json:"accountType"`
+			TotalEquity            string `json:"totalEquity"`
+			TotalWalletBalance     string `json:"totalWalletBalance"`
+			TotalAvailableBalance  string `json:"totalAvailableBalance"`
+			TotalMarginBalance     string `json:"totalMarginBalance"`
+			TotalPerpUPL           string `json:"totalPerpUPL"`
+			TotalInitialMargin     string `json:"totalInitialMargin"`
+			TotalMaintenanceMargin string `json:"totalMaintenanceMargin"`
+			Coin                   []struct {
+				Coin            string `json:"coin"`
+				Equity          string `json:"equity"`
+				WalletBalance   string `json:"walletBalance"`
+				UnrealisedPnl   string `json:"unrealisedPnl"`
+				CumRealisedPnl  string `json:"cumRealisedPnl"`
+				TotalOrderIM    string `json:"totalOrderIM"`
+				TotalPositionIM string `json:"totalPositionIM"`
+				TotalPositionMM string `json:"totalPositionMM"`
+				Locked          string `json:"locked"`
+				UsdValue        string `json:"usdValue"`
+			} `json:"coin"`
+		} `json:"list"`
+	} `json:"result"`
 }
 
 type PositonTrade struct {
