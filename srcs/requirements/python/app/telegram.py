@@ -11,25 +11,31 @@ class Telegram():
         api_id_raw = os.getenv('API_ID', '0')
         self.api_id = int(api_id_raw)
         self.api_hash = os.getenv('API_HASH', '')
-        self.sig_channel = (os.getenv('SIGNAL_CHANNEL', '') or '').strip()
-        self.bot_name = (os.getenv('BOT_NAME', '') or '').strip()
+        # Support multiple channels:
+        # - SIGNAL_CHANNELS="chanA,chanB"
+        # - or SIGNAL_CHANNEL + SIGNAL_CHANNEL_2
+        raw_list = os.getenv('SIGNAL_CHANNELS', '').strip()
+        c1 = (os.getenv('SIGNAL_CHANNEL', '') or '').strip()
+        c2 = (os.getenv('SIGNAL_CHANNEL_2', '') or '').strip()
+        if raw_list:
+            self.channels = [x.strip().lstrip('@') for x in raw_list.split(',') if x.strip()]
+        else:
+            self.channels = [x.lstrip('@') for x in [c1, c2] if x]
+
+        self.bot_name = (os.getenv('BOT_NAME', '') or '').strip().lstrip('@')
         self.session_str = (os.getenv('TELETHON_STRING_SESSION', '') or '').strip()
 
         print("[PY] starting…")
         print("[PY] API_ID:", self.api_id)
-        print("[PY] SIGNAL_CHANNEL:", self.sig_channel)
+        print("[PY] CHANNELS:", self.channels)
         print("[PY] BOT_NAME:", self.bot_name)
-
-        if self.sig_channel.startswith('@'): self.sig_channel = self.sig_channel[1:]
-        if self.bot_name.startswith('@'): self.bot_name = self.bot_name[1:]
 
         if self.session_str:
             self.client = TelegramClient(StringSession(self.session_str), self.api_id, self.api_hash)
-            print(f"[PY] RUN (string session). sig_channel={self.sig_channel} -> bot={self.bot_name}")
+            print(f"[PY] RUN (string session)")
         else:
-            # fallback to file session "trading bot"
             self.client = TelegramClient("trading bot", self.api_id, self.api_hash)
-            print(f"[PY] RUN (file session). sig_channel={self.sig_channel} -> bot={self.bot_name}")
+            print(f"[PY] RUN (file session)")
 
     async def _forward(self, event):
         try:
@@ -45,18 +51,26 @@ class Telegram():
             print(f"[PY][ERROR] forward failed: {e}")
 
     def start(self):
+        if not self.channels:
+            print("[PY][ERROR] no SIGNAL_CHANNEL(S) configured"); sys.exit(1)
+
         with self.client:
             self.client.loop.run_until_complete(self.client.connect())
-            try:
-                entity = self.client.loop.run_until_complete(self.client.get_entity(self.sig_channel))
-                target = entity.id
-                print(f"[PY] resolved SIGNAL_CHANNEL: id={entity.id} username={getattr(entity,'username',None)} title={getattr(entity,'title',None)}")
-            except Exception as e:
-                print(f"[PY][ERROR] cannot resolve SIGNAL_CHANNEL '{self.sig_channel}': {e}")
-                sys.exit(1)
 
-            self.client.add_event_handler(self._forward, events.NewMessage(chats=target))
-            print(f"[PY] listening on id={target} (@{self.sig_channel}) -> @{self.bot_name}")
+            # resolve all channels → ids
+            targets = []
+            for ch in self.channels:
+                try:
+                    ent = self.client.loop.run_until_complete(self.client.get_entity(ch))
+                    targets.append(ent.id)
+                    print(f"[PY] resolved: @{ch} -> id={ent.id}")
+                except Exception as e:
+                    print(f"[PY][ERROR] cannot resolve '{ch}': {e}")
+                    sys.exit(1)
+
+            # one handler that listens to ALL target ids
+            self.client.add_event_handler(self._forward, events.NewMessage(chats=targets))
+            print(f"[PY] listening on {targets} -> @{self.bot_name}")
             self.client.run_until_disconnected()
 
 if __name__ == '__main__':

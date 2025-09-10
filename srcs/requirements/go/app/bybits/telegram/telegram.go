@@ -3,7 +3,10 @@ package telegram
 import (
 	"bot/bybits/print"
 	"errors"
+	"fmt"
 	"log"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -47,6 +50,7 @@ func CancelParse(msg string, debug bool, data Data) (Data, error) {
 	return data, nil
 }
 
+// Channel 1: @Ethan_Signals PARSER
 func FuturParse(msg string, debug bool, data Data) (Data, error) {
 	SetDataNil(&data)
 	lines := strings.Split(msg, "\n")
@@ -140,14 +144,222 @@ func FuturParse(msg string, debug bool, data Data) (Data, error) {
 	if debug {
 		log.Println("[PARSER] FAIL:", print.PrettyPrint(data))
 	}
-	return data, errors.New("Error Parsing")
+	return data, errors.New("error parsing")
+}
+
+// CHANNEL 2: @leaks_vip_signals  SIGNALS
+
+/*
+var (
+	reHeaderSymbol  = regexp.MustCompile(`(?m)^\s*(?:🪙|🔹|•)?\s*([A-Z0-9]{2,20}USDT)\s*$`)
+	reSideRangeLine = regexp.MustCompile(`(?im)^\s*(long|short)\s*:\s*([0-9][0-9.,]*)\s*-\s*([0-9][0-9.,]*)\s*$`)
+	reLeverageLine  = regexp.MustCompile(`(?im)^\s*(?:cross\s+)?(\d+)\s*x\s*$`)
+	reTargetsHeader = regexp.MustCompile(`(?im)^\s*👉?\s*targets?\s*$`)
+	reTargetLine    = regexp.MustCompile(`(?im)^\s*\d+\)\s*([0-9][0-9.,]*)(?:\+)?\s*$`)
+	reSLHeader      = regexp.MustCompile(`(?im)^\s*⛔?\s*sl\s*:?\s*$`)
+	rePercentAny    = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*%`)
+	reFirstNumber   = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)`)
+)
+*/
+
+var (
+	// allow any leading emoji/punctuation, then SYMBOLUSDT
+	reHeaderSymbol = regexp.MustCompile(`(?m)^\s*(?:[^\w\s]+)?\s*([A-Z0-9]{2,20}USDT)\s*$`)
+
+	// accept hyphen OR en/em dash, case-insensitive LONG/SHORT
+	reSideRangeLine = regexp.MustCompile(`(?im)^\s*(long|short)\s*:\s*([0-9][0-9.,]*)\s*[-–—]\s*([0-9][0-9.,]*)\s*$`)
+
+	// accept "Cross 10x", "Cross10x", or just "10x"
+	reLeverageLine = regexp.MustCompile(`(?im)^\s*(?:cross\s*)?(\d+)\s*x\s*$`)
+
+	// accept "👉 Targets" or "Targets:" with optional colon
+	reTargetsHeader = regexp.MustCompile(`(?im)^\s*👉?\s*targets?\s*:?\s*$`)
+	reTargetLine    = regexp.MustCompile(`(?im)^\s*\d+\)\s*([0-9][0-9.,]*)(?:\+)?\s*$`)
+
+	// SL header: tolerate ⛔, ⛔️ (with variation selector), or no emoji at all
+	reSLHeader   = regexp.MustCompile(`(?im)^\s*(?:⛔️?|[^\w\s]+)?\s*sl\s*:?\s*$`)
+	rePercentAny = regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*%`)
+)
+
+func toF(s string) (float64, bool) {
+	s = strings.TrimSpace(strings.ReplaceAll(s, ",", "")) // strip thousands commas just in case
+	if s == "" {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	return f, err == nil
+}
+func f6(x float64) string { return fmt.Sprintf("%.6f", x) }
+
+func SecondChannelParse(msg string, debug bool, data Data) (Data, error) {
+	SetDataNil(&data)
+	lines := strings.Split(msg, "\n")
+
+	// 1) Symbol from header line only
+	if m := reHeaderSymbol.FindStringSubmatch(msg); len(m) == 2 {
+		data.Currency = strings.ToUpper(m[1])
+	}
+
+	// 2) Side + entry range (must be on its own line)
+	var entry float64
+	if m := reSideRangeLine.FindStringSubmatch(msg); len(m) == 4 {
+		side := strings.ToLower(m[1])
+		a, _ := toF(m[2])
+		b, _ := toF(m[3])
+		entry = (a + b) / 2.0
+		data.Entry = f6(entry)
+		if side == "long" {
+			data.Type = "Buy"
+		} else {
+			data.Type = "Sell"
+		}
+	}
+
+	// 3) Leverage (prefer "Cross 10x" line, but accept plain "10x" line)
+	for _, raw := range lines {
+		l := strings.TrimSpace(raw)
+		if m := reLeverageLine.FindStringSubmatch(l); len(m) == 2 {
+			data.Level = m[1]
+			break
+		}
+	}
+	if data.Level == "" {
+		data.Level = "10"
+	} // sane default if missing
+
+	// 4) Targets: read the first 4 numbered target lines AFTER the 👉 Targets header
+	tps := []string{}
+	seenTargets := false
+	for _, raw := range lines {
+		l := strings.TrimSpace(raw)
+		if !seenTargets {
+			if reTargetsHeader.MatchString(l) {
+				seenTargets = true
+			}
+			continue
+		}
+		if m := reTargetLine.FindStringSubmatch(l); len(m) == 2 {
+			val := strings.TrimSpace(strings.ReplaceAll(m[1], ",", ""))
+			tps = append(tps, val)
+			if len(tps) == 4 {
+				break
+			}
+		}
+	}
+	if len(tps) > 0 {
+		data.Tp1 = tps[0]
+	}
+	if len(tps) > 1 {
+		data.Tp2 = tps[1]
+	}
+	if len(tps) > 2 {
+		data.Tp3 = tps[2]
+	}
+	if len(tps) > 3 {
+		data.Tp4 = tps[3]
+	}
+
+	// 5) SL: find SL header line, then read %s on the next non-empty line
+	var slPct float64
+	if entry > 0 {
+		for i := 0; i < len(lines); i++ {
+			if reSLHeader.MatchString(lines[i]) {
+				// look ahead to the next non-empty line
+				for j := i + 1; j < len(lines); j++ {
+					nxt := strings.TrimSpace(lines[j])
+					if nxt == "" {
+						continue
+					}
+					pcts := rePercentAny.FindAllStringSubmatch(nxt, -1)
+					if len(pcts) > 0 {
+						// use the lower bound if a range like "5%-10%"
+						min := 1e9
+						for _, p := range pcts {
+							if v, ok := toF(p[1]); ok && v < min {
+								min = v
+							}
+						}
+						if min < 1e9 {
+							slPct = min
+						}
+						break
+					}
+					// fallback: absolute price
+					if v, ok := toF(nxt); ok {
+						data.Sl = f6(v)
+						break
+					}
+					break
+				}
+				break
+			}
+		}
+		if data.Sl == "" && slPct > 0 {
+			if strings.EqualFold(data.Type, "Buy") {
+				data.Sl = f6(entry * (1 - slPct/100.0))
+			} else if strings.EqualFold(data.Type, "Sell") {
+				data.Sl = f6(entry * (1 + slPct/100.0))
+			}
+		}
+	}
+
+	// 6) Sanity checks: require the essential fields
+	if data.Currency == "" || data.Entry == "" || data.Sl == "" || data.Tp1 == "" || data.Type == "" {
+		if debug {
+			log.Println("[PARSER2] FAIL (missing fields):", print.PrettyPrint(data))
+		}
+		return data, errors.New("error parsing")
+	}
+
+	// 7) Directional sanity: targets must be on the correct side of entry
+	nums := func(ss ...string) (out []float64) {
+		for _, s := range ss {
+			if v, ok := toF(s); ok {
+				out = append(out, v)
+			}
+		}
+		return
+	}
+	tpf := nums(data.Tp1, data.Tp2, data.Tp3, data.Tp4)
+	if strings.EqualFold(data.Type, "Buy") {
+		// all TPs should be >= entry (tolerate tiny eps)
+		eps := entry * 1e-6
+		for _, v := range tpf {
+			if v+eps < entry {
+				return data, errors.New("targets below entry for LONG")
+			}
+		}
+	} else {
+		// all TPs should be <= entry
+		eps := entry * 1e-6
+		for _, v := range tpf {
+			if v-eps > entry {
+				return data, errors.New("targets above entry for SHORT")
+			}
+		}
+	}
+
+	data.Trade = true
+	if debug {
+		log.Println("[PARSER2] OK:", print.PrettyPrint(data))
+	}
+	return data, nil
 }
 
 func ParseMsg(msg string, debug bool) (Data, error) {
 	var data Data
 
-	if strings.Index(msg, "Cancelled") > 0 {
+	if strings.Contains(msg, "Cancelled") {
 		return CancelParse(msg, debug, data)
 	}
+
+	// Use Parser #2 only if we see BOTH a symbol header and the "LONG/SHORT : a-b" line.
+	if reHeaderSymbol.MatchString(msg) && reSideRangeLine.MatchString(msg) {
+		if out, err := SecondChannelParse(msg, debug, data); err == nil {
+			return out, nil
+		}
+	}
+
+	// fallback to your original parser
 	return FuturParse(msg, debug, data)
 }

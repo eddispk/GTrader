@@ -41,6 +41,7 @@ services:
           - API_ID=${API_ID}
           - API_HASH=${API_HASH}
           - SIGNAL_CHANNEL=${SIGNAL_CHANNEL} 
+          - SIGNAL_CHANNEL_2=${SIGNAL_CHANNEL_2}
           - BOT_NAME=${BOT_NAME} 
           - TELETHON_STRING_SESSION=${TELETHON_STRING_SESSION}   # <-- ADD THIS
           - PYTHONUNBUFFERED=1   
