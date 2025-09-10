@@ -8,6 +8,7 @@ import (
 	"bot/bybits/telegram"
 	"bot/data"
 	"bot/mysql"
+	"fmt"
 	"log"
 	"time"
 
@@ -33,6 +34,25 @@ func run(updates tgbotapi.UpdatesChannel, order *data.Bot, api *data.Env, trade 
 								trade.Delete(dataBybite.Currency)
 							} else {
 								order.AddActive(dataBybite.Currency)
+								// NOTIFICATION - TRADE
+								sum := fmt.Sprintf(
+									"🟢 <b>NEW %s</b> on <b>%s</b>\nEntry: <code>%s</code>\nSL: <code>%s</code>\nTP1: <code>%s</code> (%s)\nTP2: <code>%s</code> (%s)\nTP3: <code>%s</code> (%s)%s\nLev: x%s  •  Stake: %s USDT",
+									dataBybite.Type, dataBybite.Currency,
+									trade.GetEntry(dataBybite.Currency),
+									trade.GetSl(dataBybite.Currency),
+									trade.GetTp1(dataBybite.Currency), trade.GetTp1Order(dataBybite.Currency),
+									trade.GetTp2(dataBybite.Currency), trade.GetTp2Order(dataBybite.Currency),
+									trade.GetTp3(dataBybite.Currency), trade.GetTp3Order(dataBybite.Currency),
+									func() string {
+										if trade.GetTp4(dataBybite.Currency) != "" {
+											return fmt.Sprintf("\nTP4: <code>%s</code> (%s)", trade.GetTp4(dataBybite.Currency), trade.GetTp4Order(dataBybite.Currency))
+										}
+										return ""
+									}(),
+									trade.GetLeverage(dataBybite.Currency),
+									trade.GetWallet(dataBybite.Currency),
+								)
+								bot.SendToChannel(order, api.IdCHannel, sum)
 							}
 						} else {
 							if order.Debeug {

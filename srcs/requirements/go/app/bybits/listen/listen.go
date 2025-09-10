@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	notify "bot/bybits/bot"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -29,7 +31,7 @@ func GetPosition(api data.BybitApi, symbol string, url_bybite string) (get.Posit
 	return position, nil
 }
 
-func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url string) error {
+func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url string, idChannel string) error {
 	price := get.GetPrice(symbol, url)
 	if len(price.Result.List) == 0 {
 		return nil
@@ -53,6 +55,9 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		trade.Delete(symbol)
 		order.Delete(symbol)
 		log.Printf("[TP] %s BUY: SL touched -> closed", symbol)
+		msg := fmt.Sprintf("🔴 [SL] %s BUY: SL touched → closed (last=%.4f, SL=%s)", symbol, last, trade.GetSl(symbol))
+		log.Println(msg)
+		notify.SendToChannel(order, idChannel, msg)
 		return nil
 	}
 
@@ -60,7 +65,9 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 	if (hasTP4 && last >= tp4) || (!hasTP4 && last >= tp3) {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("😎 [TP] %s BUY: All take-profit targets achieved 😎", symbol)
+		msg := fmt.Sprintf("😎 [TP] %s BUY: All take-profit targets achieved", symbol)
+		log.Println(msg)
+		notify.SendToChannel(order, idChannel, msg)
 		return nil
 	}
 
@@ -89,12 +96,13 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		if err := post.ChangeLs(api, symbol, wantSL, trade.GetType(symbol), url); err == nil {
 			trade.SetSl(symbol, wantSL)
 			log.Println(hitMsg)
+			notify.SendToChannel(order, idChannel, hitMsg)
 		}
 	}
 	return nil
 }
 
-func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url string) error {
+func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot, url string, idChannel string) error {
 	price := get.GetPrice(symbol, url)
 	if len(price.Result.List) == 0 {
 		return nil
@@ -117,7 +125,9 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 	if last >= sl {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("[TP] %s SELL: SL touched -> closed", symbol)
+		msg := fmt.Sprintf("🔴 [SL] %s SELL: SL touched → closed (last=%.4f, SL=%s)", symbol, last, trade.GetSl(symbol))
+		log.Println(msg)
+		notify.SendToChannel(order, idChannel, msg)
 		return nil
 	}
 
@@ -125,7 +135,9 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 	if (hasTP4 && last <= tp4) || (!hasTP4 && last <= tp3) {
 		trade.Delete(symbol)
 		order.Delete(symbol)
-		log.Printf("😎 [TP] %s SELL: All take-profit targets achieved 😎", symbol)
+		msg := fmt.Sprintf("😎 [TP] %s SELL: All take-profit targets achieved", symbol)
+		log.Println(msg)
+		notify.SendToChannel(order, idChannel, msg)
 		return nil
 	}
 
@@ -163,6 +175,7 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		if err := post.ChangeLs(api, symbol, wantSL, trade.GetType(symbol), url); err == nil {
 			trade.SetSl(symbol, wantSL)
 			log.Println(hitMsg)
+			notify.SendToChannel(order, idChannel, hitMsg)
 		}
 	}
 	return nil
@@ -179,13 +192,11 @@ func GetPositionOrder(api *data.Env, order *data.Bot, trade *data.Trades) {
 					for i := 0; i < trade.GetLen(); i++ {
 						symbol := trade.GetSymbol(i)
 						if order.GetActiveSymbol(symbol) && trade.GetType(symbol) == "Sell" {
-							err := SellTp(apis, trade, ord.Symbol, order, api.Url)
-							if err != nil {
+							if err := SellTp(apis, trade, ord.Symbol, order, api.Url, api.IdCHannel); err != nil {
 								log.Println(err)
 							}
 						} else if order.GetActiveSymbol(symbol) && trade.GetType(symbol) == "Buy" {
-							err := BuyTp(apis, trade, ord.Symbol, order, api.Url)
-							if err != nil {
+							if err := BuyTp(apis, trade, ord.Symbol, order, api.Url, api.IdCHannel); err != nil {
 								log.Println(err)
 							}
 						}

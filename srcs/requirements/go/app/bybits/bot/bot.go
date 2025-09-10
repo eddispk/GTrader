@@ -55,7 +55,7 @@ func BotParseMsg(
 				order.Botapi.Send(msgs)
 			}
 		} else if strings.HasPrefix(msg, "/add ") && user == adm {
-			if strings.Index(msg, ":") < 0 {
+			if !strings.Contains(msg, ":") {
 				msgs := tgbotapi.NewMessage(update.Message.Chat.ID, "Error try again \n/add api:api_secret")
 				if sending {
 					sending = false
