@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,7 +26,10 @@ type Data struct {
 	Cancel     bool
 	Trade      bool
 	Spot       bool
-	BEAfterTP1 bool `json:"be_after_tp1"` // NEW
+	BEAfterTP1 bool   `json:"be_after_tp1"` // NEW
+	EntryLow   string `json:"entry_low,omitempty"`
+	EntryHigh  string `json:"entry_high,omitempty"`
+	Source     string `json:"source,omitempty"`
 }
 
 func SetDataNil(data *Data) {
@@ -77,6 +81,7 @@ func FuturParse(msg string, debug bool, data Data) (Data, error) {
 				sym = sym + "USDT"
 			}
 			data.Currency = strings.ToUpper(sym)
+			data.Source = "CH1"
 			log.Println("[PARSER] symbol/type:", data.Currency, data.Type)
 			continue
 		}
@@ -206,6 +211,10 @@ func SecondChannelParse(msg string, debug bool, data Data) (Data, error) {
 		side := strings.ToLower(m[1])
 		a, _ := toF(m[2])
 		b, _ := toF(m[3])
+
+		data.EntryLow = f6(math.Min(a, b))
+		data.EntryHigh = f6(math.Max(a, b))
+
 		entry = (a + b) / 2.0
 		data.Entry = f6(entry)
 		if side == "long" {
@@ -213,6 +222,8 @@ func SecondChannelParse(msg string, debug bool, data Data) (Data, error) {
 		} else {
 			data.Type = "Sell"
 		}
+		data.Source = "CH2"
+
 	}
 
 	// 3) Leverage (prefer "Cross 10x" line, but accept plain "10x" line)
