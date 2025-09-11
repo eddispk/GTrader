@@ -292,35 +292,32 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 	}
 
 	// --- decide entry price ---
-	// Prefer explicit Entry; else, if Channel-2 gave us a range, pick by policy.
+	// Prefer the policy for Channel-2 *even if* parser pre-filled midpoint.
 	var entry float64
-	if data.Entry != "" {
-		entry, _ = strconv.ParseFloat(data.Entry, 64)
-	} else if data.EntryLow != "" && data.EntryHigh != "" {
+	if strings.EqualFold(data.Source, "CH2") && data.EntryLow != "" && data.EntryHigh != "" {
 		lo, _ := strconv.ParseFloat(data.EntryLow, 64)
 		hi, _ := strconv.ParseFloat(data.EntryHigh, 64)
 		if hi < lo {
 			lo, hi = hi, lo
 		}
 
-		// current market (we already receive it as 'price')
-		last, _ := strconv.ParseFloat(price.Result.List[0].LastPrice, 64)
+		last := parseF(price.Result.List[0].LastPrice)
 
 		pol := strings.ToLower(strings.TrimSpace(os.Getenv("ENTRY_POLICY_CH2")))
 		if pol == "" {
 			pol = "mid"
-		} // default
+		}
 
 		switch pol {
 		case "lowest":
-			// For longs, lower bound; for shorts, upper bound
+			// for longs, lowest = lower bound; for shorts, highest = upper bound
 			if strings.EqualFold(data.Type, "Buy") {
 				entry = lo
 			} else {
 				entry = hi
 			}
 		case "closest":
-			// Pick the boundary (lo or hi) nearest to current price
+			// pick the boundary nearer to current price
 			if math.Abs(last-hi) < math.Abs(last-lo) {
 				entry = hi
 			} else {
@@ -329,9 +326,42 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 		default: // "mid"
 			entry = (lo + hi) / 2.0
 		}
+		data.Entry = fmt.Sprintf("%.6f", entry) // override parser midpoint
+	} else if data.Entry != "" {
+		entry, _ = strconv.ParseFloat(data.Entry, 64)
+	} else if data.EntryLow != "" && data.EntryHigh != "" {
+		// Fallback: any other ranged source
+		lo, _ := strconv.ParseFloat(data.EntryLow, 64)
+		hi, _ := strconv.ParseFloat(data.EntryHigh, 64)
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+
+		last := parseF(price.Result.List[0].LastPrice)
+
+		pol := strings.ToLower(strings.TrimSpace(os.Getenv("ENTRY_POLICY_CH2")))
+		if pol == "" {
+			pol = "mid"
+		}
+
+		switch pol {
+		case "lowest":
+			if strings.EqualFold(data.Type, "Buy") {
+				entry = lo
+			} else {
+				entry = hi
+			}
+		case "closest":
+			if math.Abs(last-hi) < math.Abs(last-lo) {
+				entry = hi
+			} else {
+				entry = lo
+			}
+		default:
+			entry = (lo + hi) / 2.0
+		}
 		data.Entry = fmt.Sprintf("%.6f", entry)
 	} else {
-		// fallback (shouldn't happen for CH2): try whatever Entry had or bail later
 		entry, _ = strconv.ParseFloat(data.Entry, 64)
 	}
 
