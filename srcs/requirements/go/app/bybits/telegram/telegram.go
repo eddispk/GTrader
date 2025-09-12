@@ -369,7 +369,7 @@ func SecondChannelParse(msg string, debug bool, data Data) (Data, error) {
 // 🛑Stop loss 0.167$-( SL Must Use )
 func ThirdChannelParse(msg string, debug bool, data Data) (Data, error) {
 	SetDataNil(&data)
-	text := strings.ReplaceAll(msg, "\r\n", "\n")
+	text := normalize(msg)
 	lines := strings.Split(text, "\n")
 
 	// SYMBOL
@@ -420,7 +420,8 @@ func ThirdChannelParse(msg string, debug bool, data Data) (Data, error) {
 
 	// TARGETS (take first 4 if more)
 	reTargetsHeader := regexp.MustCompile(`(?i)🎯?\s*target[s]?\b`)
-	reTline := regexp.MustCompile(`(?i)^\s*\d+\s*[.)-]?\s*([0-9][0-9.,]*)\$?`)
+	// accepts `$3.22$`, `3.22$`, `$3.22`, or `3.22`
+	reTline := regexp.MustCompile(`(?i)^\s*\d+\s*[.)-]?\s*\$?\s*([0-9][0-9.,]*)\s*\$?`)
 	if reTargetsHeader.MatchString(text) {
 		count := 0
 		for _, raw := range lines {
@@ -467,6 +468,26 @@ func ThirdChannelParse(msg string, debug bool, data Data) (Data, error) {
 		log.Println("[PARSER3] FAIL:", print.PrettyPrint(data))
 	}
 	return data, errors.New("error parsing")
+}
+
+// put near the top of telegram.go
+func normalize(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	// normalize unicode spaces/dashes
+	repl := func(r rune) rune {
+		switch r {
+		case '\u00A0', '\u2007', '\u202F', '\u2060', '\uFEFF': // NBSP etc
+			return ' '
+		case '\u2013', '\u2014': // en/em dash
+			return '-'
+		default:
+			return r
+		}
+	}
+	s = strings.Map(repl, s)
+	// squeeze multiple spaces
+	s = regexp.MustCompile(`[ \t]+`).ReplaceAllString(s, " ")
+	return s
 }
 
 func ParseMsg(msg string, debug bool) (Data, error) {

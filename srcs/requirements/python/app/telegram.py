@@ -17,6 +17,7 @@ class Telegram():
         raw_list = os.getenv('SIGNAL_CHANNELS', '').strip()
         c1 = (os.getenv('SIGNAL_CHANNEL', '') or '').strip()
         c2 = (os.getenv('SIGNAL_CHANNEL_2', '') or '').strip()
+        c2 = (os.getenv('SIGNAL_CHANNEL_3', '') or '').strip()
         if raw_list:
             self.channels = [x.strip().lstrip('@') for x in raw_list.split(',') if x.strip()]
         else:
