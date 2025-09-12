@@ -37,6 +37,7 @@ type Trade struct {
 	Id          []string `json:"id"`
 	Active      []string `json:"active"`
 	BEAfterTP1  bool     `json:"be_after_tp1"` // NEW
+	StartMs     int64    `json:"start_ms"`
 }
 
 type (
@@ -188,6 +189,15 @@ func (t *Bot) GetActiveSymbol(symbol string) bool {
 	return ret
 }
 
+func (t *Bot) SetActiveSymbol(symbol string, active bool) {
+	for i := range t.Active {
+		if t.Active[i].Symbol == symbol {
+			t.Active[i].Active = active
+			return
+		}
+	}
+}
+
 func (t *Bot) AddActive(symbol string) {
 	ls := (*t).Active
 	elem := Start{
@@ -276,6 +286,23 @@ func GetTrade(symbol string, t *Trades) *Trade {
 		}
 	}
 	return nil
+}
+
+func (t *Trades) GetStartMs(symbol string) int64 {
+	for i := range *t {
+		if (*t)[i].Symbol == symbol {
+			return (*t)[i].StartMs
+		}
+	}
+	return 0
+}
+func (t *Trades) SetStartMs(symbol string, ms int64) {
+	for i := range *t {
+		if (*t)[i].Symbol == symbol {
+			(*t)[i].StartMs = ms
+			return
+		}
+	}
 }
 
 func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybit string) bool {
@@ -444,6 +471,7 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 		Tp4:         data.Tp4,
 		Sl:          data.Sl,
 		BEAfterTP1:  data.BEAfterTP1,
+		StartMs:     0,
 	}
 
 	log.Println("[TRADE.ADD] stake:", stakeEnv, "lev:", lev, "entry:", entry, "qty:", r(qty))

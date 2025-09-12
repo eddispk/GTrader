@@ -77,6 +77,7 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		notify.SendToChannel(order, idChannel, msg)
 		trade.Delete(symbol)
 		order.Delete(symbol)
+		delete(runnerEnabled, symbol)
 		return nil
 	}
 
@@ -96,8 +97,11 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		if newSL != currentSL {
 			if err := post.ChangeLs(api, symbol, newSL, trade.GetType(symbol), url); err == nil {
 				trade.SetSl(symbol, newSL)
-				notify.SendToChannel(order, idChannel,
-					fmt.Sprintf("😎 [TP] %s BUY: TP4 reached (%.6f) -> SL moved to TP3 (%s)", symbol, tp4, newSL))
+				pct := pnlPct("Buy", entry, tp4)
+				hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP4 reached (+%.2f%%, %s) → SL to TP3 (%s)",
+					symbol, pct, sinceStart(trade, symbol), newSL)
+				notify.SendToChannel(order, idChannel, hitMsg)
+
 			} else {
 				log.Printf("[WARN] ChangeLs failed for %s: %v", symbol, err)
 			}
@@ -124,17 +128,23 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		// nothing else to do in this tick
 		return nil
 
-	case hasTP3 && hasTP2 && last >= tp3:
+	case hasTP3 && hasTP2 && last <= tp3:
 		wantSL = fmt.Sprintf("%.6f", tp2)
-		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP3 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp3, wantSL)
+		pct := pnlPct("Buy", entry, tp3)
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP3 reached (+%.2f%%, %s) → SL to TP2 (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 
 	case hasTP2 && hasTP1 && last >= tp2:
 		wantSL = fmt.Sprintf("%.6f", tp1)
-		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP2 reached (%.6f) -> SL moved to TP1 (%s)", symbol, tp2, wantSL)
+		pct := pnlPct("Buy", entry, tp2)
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP2 reached (+%.2f%%, %s) → SL to TP1 (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 
 	case hasTP1 && last >= tp1:
 		wantSL = fmt.Sprintf("%.6f", entry) // default BE after TP1
-		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP1 reached (%.6f) -> SL moved to BREAKEVEN (%s)", symbol, tp1, wantSL)
+		pct := pnlPct("Buy", entry, tp1)
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP1 reached (+%.2f%%, %s) → SL to BE (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 	}
 
 	if wantSL != "" && wantSL != currentSL {
@@ -175,12 +185,15 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 	tp4, hasTP4 := parseMaybe(trade.GetTp4(symbol))
 
 	// SL touched for shorts → last >= SL
-	if last >= sl {
-		msg := fmt.Sprintf("🔴 [SL] %s SELL: SL touched → closed (last=%.6f, SL=%s)", symbol, last, slStr)
+	if sl > 0 && last >= sl {
+		pct := pnlPct("Sell", entry, sl)
+		msg := fmt.Sprintf("🔴 [SL] %s SELL: SL touched (%.2f%%, %s) → closed",
+			symbol, pct, sinceStart(trade, symbol))
 		log.Println(msg)
 		notify.SendToChannel(order, idChannel, msg)
 		trade.Delete(symbol)
 		order.Delete(symbol)
+		delete(runnerEnabled, symbol)
 		return nil
 	}
 
@@ -199,8 +212,10 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		if newSL != currentSL {
 			if err := post.ChangeLs(api, symbol, newSL, trade.GetType(symbol), url); err == nil {
 				trade.SetSl(symbol, newSL)
-				notify.SendToChannel(order, idChannel,
-					fmt.Sprintf("😎 [TP] %s SELL: TP4 reached (%.6f) -> SL moved to TP3 (%s)", symbol, tp4, newSL))
+				pct := pnlPct("Sell", entry, tp4)
+				hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP4 reached (+%.2f%%, %s) → SL to TP3 (%s)",
+					symbol, pct, sinceStart(trade, symbol), newSL)
+				notify.SendToChannel(order, idChannel, hitMsg)
 			} else {
 				log.Printf("[WARN] ChangeLs failed for %s: %v", symbol, err)
 			}
@@ -225,17 +240,23 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		}
 		return nil
 
-	case hasTP3 && hasTP2 && last >= tp3:
+	case hasTP3 && hasTP2 && last <= tp3:
 		wantSL = fmt.Sprintf("%.6f", tp2)
-		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP3 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp3, wantSL)
+		pct := pnlPct("Sell", entry, tp3)
+		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP3 reached (+%.2f%%, %s) → SL to TP2 (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 
 	case hasTP2 && hasTP1 && last <= tp2:
 		wantSL = fmt.Sprintf("%.6f", tp1)
-		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP2 reached (%.6f) -> SL moved to TP1 (%s)", symbol, tp2, wantSL)
+		pct := pnlPct("Sell", entry, tp2)
+		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP2 reached (+%.2f%%, %s) → SL to TP1 (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 
 	case hasTP1 && last <= tp1:
 		wantSL = fmt.Sprintf("%.6f", entry) // default BE after TP1
-		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP1 reached (%.6f) -> SL moved to BREAKEVEN (%s)", symbol, tp1, wantSL)
+		pct := pnlPct("Sell", entry, tp1)
+		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP1 reached (+%.2f%%, %s) → SL to BE (%s)",
+			symbol, pct, sinceStart(trade, symbol), wantSL)
 	}
 
 	if wantSL != "" && wantSL != currentSL {
@@ -253,10 +274,30 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 func GetPositionOrder(api *data.Env, order *data.Bot, trade *data.Trades) {
 	for {
 		for _, apis := range api.Api {
-			// refresh active flags for all symbols we track
+			// refresh active flags & wire StartMs for newly-open positions
 			for _, s := range order.GetActive() {
 				if pos, err := GetPosition(apis, s, api.Url); err == nil {
-					order.CheckPositon(pos)
+					if len(pos.Result.List) == 0 {
+						// no open position for this symbol -> mark inactive
+						order.SetActiveSymbol(s, false)
+					} else {
+						order.CheckPositon(pos)
+						if trade.GetStartMs(s) == 0 {
+							p := pos.Result.List[0]
+							ms := parseMs(p.CreatedTime)
+							if ms == 0 {
+								ms = parseMs(p.UpdatedTime)
+							}
+							if ms == 0 {
+								ms = nowMs()
+							}
+							trade.SetStartMs(s, ms)
+						}
+					}
+				}
+				if !order.GetActiveSymbol(s) {
+					trade.Delete(s)
+					delete(runnerEnabled, s)
 				}
 			}
 
@@ -372,6 +413,10 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 					sl = fmt.Sprintf("%.6f", entry*1.02)
 				}
 			}
+			ms := parseF(p.CreatedTime) // they are strings; we’ll parse robustly below in listen.go
+			if ms == 0 {
+				ms = parseF(p.UpdatedTime)
+			}
 
 			elem := data.Trade{
 				Symbol:   p.Symbol,
@@ -384,6 +429,7 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 				Tp1: "", Tp2: "", Tp3: "", Tp4: "",
 				Sl:         sl,
 				BEAfterTP1: false,
+				StartMs:    int64(ms),
 			}
 			*trade = append(*trade, elem)
 			recovered++
