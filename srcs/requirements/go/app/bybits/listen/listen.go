@@ -18,6 +18,8 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+var runnerEnabled = map[string]bool{}
+
 func GetPosition(api data.BybitApi, symbol string, url_bybite string) (get.Position, error) {
 	var position get.Position
 	settle := strings.TrimSpace(os.Getenv("SETTLE_COIN"))
@@ -49,33 +51,28 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		return nil
 	}
 
+	parseMaybe := func(s string) (float64, bool) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return 0, false
+		}
+		v, err := strconv.ParseFloat(s, 64)
+		return v, err == nil
+	}
+
 	last, _ := strconv.ParseFloat(price.Result.List[0].LastPrice, 64)
 	slStr := trade.GetSl(symbol)
 	sl, _ := strconv.ParseFloat(slStr, 64)
 	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
-	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)
-	tp2, _ := strconv.ParseFloat(trade.GetTp2(symbol), 64)
-	tp3, _ := strconv.ParseFloat(trade.GetTp3(symbol), 64)
 
-	hasTP4 := trade.GetTp4(symbol) != ""
-	var tp4 float64
-	if hasTP4 {
-		tp4, _ = strconv.ParseFloat(trade.GetTp4(symbol), 64)
-	}
+	tp1, hasTP1 := parseMaybe(trade.GetTp1(symbol))
+	tp2, hasTP2 := parseMaybe(trade.GetTp2(symbol))
+	tp3, hasTP3 := parseMaybe(trade.GetTp3(symbol))
+	tp4, hasTP4 := parseMaybe(trade.GetTp4(symbol))
 
-	// SL touched → close (exchange closes; we just notify & cleanup)
+	// SL touched → close
 	if last <= sl {
 		msg := fmt.Sprintf("🔴 [SL] %s BUY: SL touched → closed (last=%.6f, SL=%s)", symbol, last, slStr)
-		log.Println(msg)
-		notify.SendToChannel(order, idChannel, msg)
-		trade.Delete(symbol)
-		order.Delete(symbol)
-		return nil
-	}
-
-	// All targets done → close (TP4 if present, else TP3)
-	if (hasTP4 && last >= tp4) || (!hasTP4 && last >= tp3) {
-		msg := fmt.Sprintf("😎 [TP] %s BUY: All take-profit targets achieved", symbol)
 		log.Println(msg)
 		notify.SendToChannel(order, idChannel, msg)
 		trade.Delete(symbol)
@@ -87,21 +84,57 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 	wantSL := ""
 	hitMsg := ""
 
+	// PRIORITY (highest first):
+	// 1) TP4 hit  -> SL = TP3
+	// 2) TP2 hit  -> SL = TP1
+	// 3) TP1 hit  -> SL = BE (entry)
 	switch {
-	case hasTP4 && last >= tp3:
-		wantSL = trade.GetTp2(symbol)
-		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP3 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp3, wantSL)
-	case last >= tp2:
-		wantSL = trade.GetTp2(symbol)
-		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP2 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp2, wantSL)
-	case last >= tp1:
-		if trade.GetBEAfterTP1(symbol) {
-			wantSL = fmt.Sprintf("%.6f", entry)
-			hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP1 reached (%.6f) -> SL moved to BREAKEVEN (%s)", symbol, tp1, wantSL)
-		} else {
-			wantSL = trade.GetTp1(symbol)
-			hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP1 reached (%.6f) -> SL moved to TP1 (%s)", symbol, tp1, wantSL)
+
+	case hasTP4 && hasTP3 && last >= tp4:
+		// step 1: lock to TP3 (only if it actually raises SL)
+		newSL := fmt.Sprintf("%.6f", tp3)
+		if newSL != currentSL {
+			if err := post.ChangeLs(api, symbol, newSL, trade.GetType(symbol), url); err == nil {
+				trade.SetSl(symbol, newSL)
+				notify.SendToChannel(order, idChannel,
+					fmt.Sprintf("😎 [TP] %s BUY: TP4 reached (%.6f) -> SL moved to TP3 (%s)", symbol, tp4, newSL))
+			} else {
+				log.Printf("[WARN] ChangeLs failed for %s: %v", symbol, err)
+			}
 		}
+		// step 2: enable trailing stop (one-time per session)
+		if !runnerEnabled[symbol] {
+			pct := 1.0
+			if s := strings.TrimSpace(os.Getenv("RUNNER_TRAIL_PCT")); s != "" {
+				if v, err := strconv.ParseFloat(s, 64); err == nil && v > 0 {
+					pct = v
+				}
+			}
+			dist := last * pct / 100.0
+			if err := post.SetTrailingStop(api, symbol, fmt.Sprintf("%.6f", dist), fmt.Sprintf("%.6f", last), url); err == nil {
+				runnerEnabled[symbol] = true
+				notify.SendToChannel(order, idChannel,
+					fmt.Sprintf("🏃 [Runner] %s BUY: Trailing stop enabled (%.2f%%, dist=%s) • active=%s",
+						symbol, pct, fmt.Sprintf("%.6f", dist), fmt.Sprintf("%.6f", last)))
+			} else {
+				log.Printf("[WARN] SetTrailingStop failed for %s: %v", symbol, err)
+			}
+
+		}
+		// nothing else to do in this tick
+		return nil
+
+	case hasTP3 && hasTP2 && last >= tp3:
+		wantSL = fmt.Sprintf("%.6f", tp2)
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP3 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp3, wantSL)
+
+	case hasTP2 && hasTP1 && last >= tp2:
+		wantSL = fmt.Sprintf("%.6f", tp1)
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP2 reached (%.6f) -> SL moved to TP1 (%s)", symbol, tp2, wantSL)
+
+	case hasTP1 && last >= tp1:
+		wantSL = fmt.Sprintf("%.6f", entry) // default BE after TP1
+		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP1 reached (%.6f) -> SL moved to BREAKEVEN (%s)", symbol, tp1, wantSL)
 	}
 
 	if wantSL != "" && wantSL != currentSL {
@@ -122,19 +155,24 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		return nil
 	}
 
+	parseMaybe := func(s string) (float64, bool) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return 0, false
+		}
+		v, err := strconv.ParseFloat(s, 64)
+		return v, err == nil
+	}
+
 	last, _ := strconv.ParseFloat(price.Result.List[0].LastPrice, 64)
 	slStr := trade.GetSl(symbol)
 	sl, _ := strconv.ParseFloat(slStr, 64)
 	entry, _ := strconv.ParseFloat(trade.GetEntry(symbol), 64)
-	tp1, _ := strconv.ParseFloat(trade.GetTp1(symbol), 64)
-	tp2, _ := strconv.ParseFloat(trade.GetTp2(symbol), 64)
-	tp3, _ := strconv.ParseFloat(trade.GetTp3(symbol), 64)
 
-	hasTP4 := trade.GetTp4(symbol) != ""
-	var tp4 float64
-	if hasTP4 {
-		tp4, _ = strconv.ParseFloat(trade.GetTp4(symbol), 64)
-	}
+	tp1, hasTP1 := parseMaybe(trade.GetTp1(symbol))
+	tp2, hasTP2 := parseMaybe(trade.GetTp2(symbol))
+	tp3, hasTP3 := parseMaybe(trade.GetTp3(symbol))
+	tp4, hasTP4 := parseMaybe(trade.GetTp4(symbol))
 
 	// SL touched for shorts → last >= SL
 	if last >= sl {
@@ -146,37 +184,57 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		return nil
 	}
 
-	// All targets done
-	if (hasTP4 && last <= tp4) || (!hasTP4 && last <= tp3) {
-		msg := fmt.Sprintf("😎 [TP] %s SELL: All take-profit targets achieved", symbol)
-		log.Println(msg)
-		notify.SendToChannel(order, idChannel, msg)
-		trade.Delete(symbol)
-		order.Delete(symbol)
-		return nil
-	}
-
 	currentSL := trade.GetSl(symbol)
 	wantSL := ""
 	hitMsg := ""
 
-	if hasTP4 && last <= tp3 {
-		// after TP3, raise SL to TP2 but not below entry
-		newSL := tp2
-		if newSL < entry {
-			newSL = entry
+	// PRIORITY (highest first):
+	// 1) TP4 hit  -> SL = TP3
+	// 2) TP2 hit  -> SL = TP1
+	// 3) TP1 hit  -> SL = BE (entry)
+	switch {
+	case hasTP4 && hasTP3 && last <= tp4:
+		// step 1: lock to TP3 (for shorts, TP3 is ABOVE last; retrace to TP3 stops out with profit)
+		newSL := fmt.Sprintf("%.6f", tp3)
+		if newSL != currentSL {
+			if err := post.ChangeLs(api, symbol, newSL, trade.GetType(symbol), url); err == nil {
+				trade.SetSl(symbol, newSL)
+				notify.SendToChannel(order, idChannel,
+					fmt.Sprintf("😎 [TP] %s SELL: TP4 reached (%.6f) -> SL moved to TP3 (%s)", symbol, tp4, newSL))
+			} else {
+				log.Printf("[WARN] ChangeLs failed for %s: %v", symbol, err)
+			}
 		}
-		wantSL = fmt.Sprintf("%.6f", newSL)
-		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP3 reached (%.6f) -> SL moved to TP2/BE floor (%s)", symbol, tp3, wantSL)
-	} else if last <= tp2 {
-		newSL := tp1
-		if newSL < entry {
-			newSL = entry
+		// step 2: enable trailing stop once
+		if !runnerEnabled[symbol] {
+			pct := 1.0
+			if s := strings.TrimSpace(os.Getenv("RUNNER_TRAIL_PCT")); s != "" {
+				if v, err := strconv.ParseFloat(s, 64); err == nil && v > 0 {
+					pct = v
+				}
+			}
+			dist := last * pct / 100.0
+			if err := post.SetTrailingStop(api, symbol, fmt.Sprintf("%.6f", dist), fmt.Sprintf("%.6f", last), url); err == nil {
+				runnerEnabled[symbol] = true
+				notify.SendToChannel(order, idChannel,
+					fmt.Sprintf("🏃 [Runner] %s SELL: Trailing stop enabled (%.2f%%, dist=%s) • active=%s",
+						symbol, pct, fmt.Sprintf("%.6f", dist), fmt.Sprintf("%.6f", last)))
+			} else {
+				log.Printf("[WARN] SetTrailingStop failed for %s: %v", symbol, err)
+			}
 		}
-		wantSL = fmt.Sprintf("%.6f", newSL)
-		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP2 reached (%.6f) -> SL moved to TP1/BE floor (%s)", symbol, tp2, wantSL)
-	} else if last <= tp1 && trade.GetBEAfterTP1(symbol) {
-		wantSL = fmt.Sprintf("%.6f", entry)
+		return nil
+
+	case hasTP3 && hasTP2 && last >= tp3:
+		wantSL = fmt.Sprintf("%.6f", tp2)
+		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP3 reached (%.6f) -> SL moved to TP2 (%s)", symbol, tp3, wantSL)
+
+	case hasTP2 && hasTP1 && last <= tp2:
+		wantSL = fmt.Sprintf("%.6f", tp1)
+		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP2 reached (%.6f) -> SL moved to TP1 (%s)", symbol, tp2, wantSL)
+
+	case hasTP1 && last <= tp1:
+		wantSL = fmt.Sprintf("%.6f", entry) // default BE after TP1
 		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP1 reached (%.6f) -> SL moved to BREAKEVEN (%s)", symbol, tp1, wantSL)
 	}
 

@@ -176,3 +176,28 @@ func ChangeLs(api data.BybitApi, symbol string, sl string, side string, url_bybi
 	log.Printf("[ChangeLs] OK %s -> stopLoss=%s", symbol, sl)
 	return nil
 }
+
+func SetTrailingStop(api data.BybitApi, symbol, trailingDist, activePrice, url_bybit string) error {
+	body := map[string]interface{}{
+		"category":     "linear",
+		"symbol":       symbol,
+		"positionIdx":  0,
+		"tpslMode":     "Full",
+		"trailingStop": trailingDist, // absolute distance in price terms
+		"activePrice":  activePrice,  // start trailing from here
+		"slTriggerBy":  "LastPrice",
+	}
+	raw, err := get.PrivatePOST(url_bybit, "/v5/position/trading-stop", body, api.Api, api.Api_secret)
+	if err != nil {
+		return err
+	}
+	var res EmptyResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return err
+	}
+	if res.RetCode != 0 {
+		return fmt.Errorf("set trailing stop failed for %s: %s (%d)", symbol, res.RetMsg, res.RetCode)
+	}
+	log.Printf("[Trailing] enabled %s: dist=%s active=%s", symbol, trailingDist, activePrice)
+	return nil
+}
