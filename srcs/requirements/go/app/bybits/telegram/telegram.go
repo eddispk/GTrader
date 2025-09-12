@@ -357,6 +357,118 @@ func SecondChannelParse(msg string, debug bool, data Data) (Data, error) {
 	return data, nil
 }
 
+// CHANNEL 3: @Aman_crypto_vip  (each signal in a single message)
+// Example lines:
+// 🔴 TRADE -  PYTH / USDT ( Futures )
+// 👉 Type -  LONG
+// 👉 Leverage- 2X to 3X ( Recommend)
+// 📌 Buy Zone -  0.18$ to 0.174$
+// 🎯Target
+// 1. 0.183$
+// ...
+// 🛑Stop loss 0.167$-( SL Must Use )
+func ThirdChannelParse(msg string, debug bool, data Data) (Data, error) {
+	SetDataNil(&data)
+	text := strings.ReplaceAll(msg, "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+
+	// SYMBOL
+	reHead := regexp.MustCompile(`(?i)trade\s*-\s*([A-Z0-9._-]+)\s*/\s*USDT`)
+	if m := reHead.FindStringSubmatch(text); len(m) == 2 {
+		data.Currency = strings.ToUpper(m[1]) + "USDT"
+	}
+
+	// TYPE
+	reType := regexp.MustCompile(`(?i)type\s*[-:]*\s*(long|short)`)
+	if m := reType.FindStringSubmatch(text); len(m) == 2 {
+		if strings.EqualFold(m[1], "long") {
+			data.Type = "Buy"
+		} else {
+			data.Type = "Sell"
+		}
+	}
+
+	// LEVERAGE (pick the max in "2X to 3X")
+	/*
+		reLev := regexp.MustCompile(`(?i)leverage\s*[-:]*\s*([0-9]+)\s*x(?:\s*(?:to|-)\s*([0-9]+)\s*x)?`)
+		if m := reLev.FindStringSubmatch(text); len(m) >= 2 {
+			l1, _ := strconv.Atoi(m[1])
+			lmax := l1
+			if len(m) >= 3 && m[2] != "" {
+				l2, _ := strconv.Atoi(m[2])
+				if l2 > lmax {
+					lmax = l2
+				}
+			}
+			data.Level = fmt.Sprint(lmax)
+		}*/
+	data.Level = "10"
+
+	// BUY ZONE range
+	reZone := regexp.MustCompile(`(?i)buy\s*zone\s*[-:]*\s*([0-9][0-9.,]*)\$?\s*(?:to|[-–—])\s*([0-9][0-9.,]*)\$?`)
+	if m := reZone.FindStringSubmatch(text); len(m) == 3 {
+		a, _ := strconv.ParseFloat(strings.ReplaceAll(m[1], ",", ""), 64)
+		b, _ := strconv.ParseFloat(strings.ReplaceAll(m[2], ",", ""), 64)
+		lo, hi := a, b
+		if hi < lo {
+			lo, hi = hi, lo
+		}
+		data.EntryLow = f6(lo)
+		data.EntryHigh = f6(hi)
+		data.Entry = f6((lo + hi) / 2.0) // midpoint; Add(...) may override per policy
+	}
+
+	// TARGETS (take first 4 if more)
+	reTargetsHeader := regexp.MustCompile(`(?i)🎯?\s*target[s]?\b`)
+	reTline := regexp.MustCompile(`(?i)^\s*\d+\s*[.)-]?\s*([0-9][0-9.,]*)\$?`)
+	if reTargetsHeader.MatchString(text) {
+		count := 0
+		for _, raw := range lines {
+			l := strings.TrimSpace(raw)
+			if m := reTline.FindStringSubmatch(l); len(m) == 2 {
+				val := strings.ReplaceAll(m[1], ",", "")
+				switch count {
+				case 0:
+					data.Tp1 = val
+				case 1:
+					data.Tp2 = val
+				case 2:
+					data.Tp3 = val
+				case 3:
+					data.Tp4 = val // ignore 5th+
+				}
+				count++
+				if count == 4 {
+					break
+				}
+			}
+		}
+	}
+
+	// STOP LOSS
+	reSL := regexp.MustCompile(`(?i)stop\s*loss\s*([0-9][0-9.,]*)\$?`)
+	if m := reSL.FindStringSubmatch(text); len(m) == 2 {
+		data.Sl = strings.ReplaceAll(m[1], ",", "")
+	}
+
+	data.Source = "CH3"
+
+	// Validate
+	if data.Currency != "" &&
+		(data.Entry != "" || (data.EntryLow != "" && data.EntryHigh != "")) &&
+		data.Sl != "" && data.Tp1 != "" && data.Type != "" {
+		data.Trade = true
+		if debug {
+			log.Println("[PARSER3] OK:", print.PrettyPrint(data))
+		}
+		return data, nil
+	}
+	if debug {
+		log.Println("[PARSER3] FAIL:", print.PrettyPrint(data))
+	}
+	return data, errors.New("error parsing")
+}
+
 func ParseMsg(msg string, debug bool) (Data, error) {
 	var data Data
 
@@ -364,13 +476,23 @@ func ParseMsg(msg string, debug bool) (Data, error) {
 		return CancelParse(msg, debug, data)
 	}
 
-	// Use Parser #2 only if we see BOTH a symbol header and the "LONG/SHORT : a-b" line.
+	// NEW: detect Channel 3 quickly
+	low := strings.ToLower(msg)
+	if strings.Contains(low, "trade -") &&
+		strings.Contains(low, "buy zone") &&
+		strings.Contains(low, "stop loss") {
+		if out, err := ThirdChannelParse(msg, debug, data); err == nil {
+			return out, nil
+		}
+	}
+
+	// Channel 2?
 	if reHeaderSymbol.MatchString(msg) && reSideRangeLine.MatchString(msg) {
 		if out, err := SecondChannelParse(msg, debug, data); err == nil {
 			return out, nil
 		}
 	}
 
-	// fallback to your original parser
+	// Fallback to Channel 1
 	return FuturParse(msg, debug, data)
 }

@@ -294,7 +294,7 @@ func (t *Trades) Add(api BybitApi, data telegram.Data, price get.Price, url_bybi
 	// --- decide entry price ---
 	// Prefer the policy for Channel-2 *even if* parser pre-filled midpoint.
 	var entry float64
-	if strings.EqualFold(data.Source, "CH2") && data.EntryLow != "" && data.EntryHigh != "" {
+	if (strings.EqualFold(data.Source, "CH2") || strings.EqualFold(data.Source, "CH3")) && data.EntryLow != "" && data.EntryHigh != "" {
 		lo, _ := strconv.ParseFloat(data.EntryLow, 64)
 		hi, _ := strconv.ParseFloat(data.EntryHigh, 64)
 		if hi < lo {
