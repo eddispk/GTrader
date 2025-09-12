@@ -389,21 +389,20 @@ func ThirdChannelParse(msg string, debug bool, data Data) (Data, error) {
 	}
 
 	// LEVERAGE (pick the max in "2X to 3X")
-	/*
-		reLev := regexp.MustCompile(`(?i)leverage\s*[-:]*\s*([0-9]+)\s*x(?:\s*(?:to|-)\s*([0-9]+)\s*x)?`)
-		if m := reLev.FindStringSubmatch(text); len(m) >= 2 {
-			l1, _ := strconv.Atoi(m[1])
-			lmax := l1
-			if len(m) >= 3 && m[2] != "" {
-				l2, _ := strconv.Atoi(m[2])
-				if l2 > lmax {
-					lmax = l2
-				}
+	reLev := regexp.MustCompile(`(?i)leverage\s*[-:]*\s*([0-9]+)\s*x(?:\s*(?:to|-)\s*([0-9]+)\s*x)?`)
+	if m := reLev.FindStringSubmatch(text); len(m) >= 2 {
+		l1, _ := strconv.Atoi(m[1])
+		lmax := l1
+		if len(m) >= 3 && m[2] != "" {
+			l2, _ := strconv.Atoi(m[2])
+			if l2 > lmax {
+				lmax = l2
 			}
-			data.Level = fmt.Sprint(lmax)
-		}*/
-	data.Level = "10"
-
+		}
+		data.Level = fmt.Sprint(lmax)
+	} else {
+		data.Level = "10"
+	}
 	// BUY ZONE range
 	reZone := regexp.MustCompile(`(?i)buy\s*zone\s*[-:]*\s*([0-9][0-9.,]*)\$?\s*(?:to|[-–—])\s*([0-9][0-9.,]*)\$?`)
 	if m := reZone.FindStringSubmatch(text); len(m) == 3 {
