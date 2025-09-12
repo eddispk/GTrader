@@ -20,16 +20,26 @@ import (
 
 func GetPosition(api data.BybitApi, symbol string, url_bybite string) (get.Position, error) {
 	var position get.Position
+	settle := strings.TrimSpace(os.Getenv("SETTLE_COIN"))
+	if settle == "" {
+		settle = "USDT"
+	}
+
 	q := map[string]string{
-		"category": "linear",
-		"symbol":   symbol,
+		"category":   "linear",
+		"symbol":     symbol,
+		"openOnly":   "1",
+		"settleCoin": settle,
 	}
 	body, err := get.PrivateGET(url_bybite, "/v5/position/list", q, api.Api, api.Api_secret)
 	if err != nil {
 		log.Println(err)
 		return position, err
 	}
-	json.Unmarshal(body, &position)
+	if err := json.Unmarshal(body, &position); err != nil {
+		log.Println(err)
+		return position, err
+	}
 	return position, nil
 }
 
@@ -219,19 +229,16 @@ func GetPositionOrder(api *data.Env, order *data.Bot, trade *data.Trades) {
 	}
 }
 
-func UpdateChannel(updates tgbotapi.UpdatesChannel) {
-	for update := range updates {
-		if update.Message != nil {
-			log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-		}
-	}
-}
-
 // ReloadOpenPositions scans Bybit for any open linear positions and rebuilds
 // in-memory state so the watcher resumes after restarts.
 func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int {
 	seen := map[string]bool{}
 	recovered := 0
+
+	settle := strings.TrimSpace(os.Getenv("SETTLE_COIN"))
+	if settle == "" {
+		settle = "USDT"
+	}
 
 	parseF := func(s string) float64 {
 		f, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
@@ -239,24 +246,38 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 	}
 
 	for _, keys := range api.Api {
-		// list *all* positions for linear; symbol is optional
-		body, err := get.PrivateGET(api.Url, "/v5/position/list",
-			map[string]string{"category": "linear"},
-			keys.Api, keys.Api_secret)
+		// ask for ALL open linear positions (no symbol), filtered by openOnly & settleCoin
+		body, err := get.PrivateGET(
+			api.Url,
+			"/v5/position/list",
+			map[string]string{
+				"category":   "linear",
+				"openOnly":   "1",
+				"settleCoin": settle,
+			},
+			keys.Api, keys.Api_secret,
+		)
 		if err != nil {
-			log.Printf("[Reload] error: %v", err)
+			log.Printf("[Reload] HTTP error: %v", err)
 			continue
 		}
+
 		var pos get.Position
 		if err := json.Unmarshal(body, &pos); err != nil {
-			log.Printf("[Reload] unmarshal: %v", err)
+			log.Printf("[Reload] JSON error: %v body=%s", err, string(body))
 			continue
 		}
-		if pos.RetCode != 0 || len(pos.Result.List) == 0 {
+		if pos.RetCode != 0 {
+			log.Printf("[Reload] retCode=%d retMsg=%s body=%s", pos.RetCode, pos.RetMsg, string(body))
+			continue
+		}
+		if len(pos.Result.List) == 0 {
+			log.Printf("[Reload] no open positions (settle=%s) for this key", settle)
 			continue
 		}
 
 		for _, p := range pos.Result.List {
+			// consider only actual open size
 			if p.Symbol == "" || p.Size == "" || p.Size == "0" || p.Size == "0.0000" {
 				continue
 			}
@@ -265,7 +286,7 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 			}
 			seen[p.Symbol] = true
 
-			// ensure Active list has the symbol and mark it active
+			// ensure Active has the symbol and mark active
 			found := false
 			for i := range order.Active {
 				if order.Active[i].Symbol == p.Symbol {
@@ -278,16 +299,15 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 				order.Active = append(order.Active, data.Start{Symbol: p.Symbol, Active: true})
 			}
 
-			// if we already track a trade for it, skip creating another
+			// if we already track it, don't add a duplicate Trade
 			if !trade.CheckSymbol(p.Symbol) {
 				continue
 			}
 
-			// minimal Trade reconstruction (we may not know original TPs)
 			entry := parseF(p.AvgPrice)
-			sl := p.StopLoss
+			sl := strings.TrimSpace(p.StopLoss)
 			if sl == "" || sl == "0" || sl == "0.0000" {
-				// fallback 2% away from entry
+				// fallback 2% away from entry to have a usable value for watcher logs
 				if strings.EqualFold(p.Side, "Buy") {
 					sl = fmt.Sprintf("%.6f", entry*0.98)
 				} else {
@@ -312,8 +332,18 @@ func ReloadOpenPositions(api *data.Env, order *data.Bot, trade *data.Trades) int
 		}
 	}
 
-	if recovered > 0 {
+	if recovered == 0 {
+		log.Printf("[Reload] found 0 open positions (settle=%s). If you HAVE open trades, check API key/account and settle coin.", settle)
+	} else {
 		log.Printf("[Reload] recovered %d open position(s): %v", recovered, order.GetActive())
 	}
 	return recovered
+}
+
+func UpdateChannel(updates tgbotapi.UpdatesChannel) {
+	for update := range updates {
+		if update.Message != nil {
+			log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
+		}
+	}
 }

@@ -133,9 +133,11 @@ func main() {
 	// ---- RESTART SAFETY: rebuild in-memory state from exchange
 	recovered := listen.ReloadOpenPositions(&api, &order, &trade)
 	if recovered > 0 {
-		notify := fmt.Sprintf("🧰 <b>Restart safety</b>: tracking %d open position(s): <code>%s</code>",
+		msg := fmt.Sprintf("🧰 <b>Restart safety</b>: tracking %d open position(s): <code>%s</code>",
 			recovered, strings.Join(order.GetActive(), ", "))
-		bot.SendToChannel(&order, api.IdCHannel, notify)
+		bot.SendToChannel(&order, api.IdCHannel, msg)
+	} else {
+		log.Println("[Restart] no open positions recovered")
 	}
 
 	u := tgbotapi.NewUpdate(0)
