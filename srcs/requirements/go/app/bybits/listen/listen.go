@@ -128,7 +128,7 @@ func BuyTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bot
 		// nothing else to do in this tick
 		return nil
 
-	case hasTP3 && hasTP2 && last <= tp3:
+	case hasTP3 && hasTP2 && last >= tp3:
 		wantSL = fmt.Sprintf("%.6f", tp2)
 		pct := pnlPct("Buy", entry, tp3)
 		hitMsg = fmt.Sprintf("😎 [TP] %s BUY: TP3 reached (+%.2f%%, %s) → SL to TP2 (%s)",
@@ -240,7 +240,7 @@ func SellTp(api data.BybitApi, trade *data.Trades, symbol string, order *data.Bo
 		}
 		return nil
 
-	case hasTP3 && hasTP2 && last <= tp3:
+	case hasTP3 && hasTP2 && last >= tp3:
 		wantSL = fmt.Sprintf("%.6f", tp2)
 		pct := pnlPct("Sell", entry, tp3)
 		hitMsg = fmt.Sprintf("😎 [TP] %s SELL: TP3 reached (+%.2f%%, %s) → SL to TP2 (%s)",
