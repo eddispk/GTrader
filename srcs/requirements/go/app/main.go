@@ -10,6 +10,7 @@ import (
 	"bot/mysql"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -106,39 +107,39 @@ func main() {
 	log.Print("waiting mysql....")
 	time.Sleep(6 * time.Second)
 
-	// for show debeug set at true
-	// get var env in struct
-	err := data.LoadEnv(&api)
-	if err != nil {
+	if err := data.LoadEnv(&api); err != nil {
 		log.Fatal("Error cannot Read file .env: ", err)
 	}
 
-	// get data sql set struct order
 	if order.NewBot(&api, false) != nil {
 		log.Fatalf("NewBot error: ")
 	}
-	err = mysql.ConnectionDb(&order, &api)
-	if err != nil {
+	if err := mysql.ConnectionDb(&order, &api); err != nil {
 		log.Fatal(err)
 	}
 	defer order.Db.Close()
 
-	// print api find
 	log.Printf("Get api Ok")
 
-	// connection bot telegram
+	// telegram bot
+	var err error
 	order.Botapi, err = tgbotapi.NewBotAPI(api.Api_telegram)
 	if err != nil {
 		log.Panic(err)
 	}
-
 	order.Botapi.Debug = order.Debeug
-
 	log.Printf("Authorized on account %s", order.Botapi.Self.UserName)
+
+	// ---- RESTART SAFETY: rebuild in-memory state from exchange
+	recovered := listen.ReloadOpenPositions(&api, &order, &trade)
+	if recovered > 0 {
+		notify := fmt.Sprintf("🧰 <b>Restart safety</b>: tracking %d open position(s): <code>%s</code>",
+			recovered, strings.Join(order.GetActive(), ", "))
+		bot.SendToChannel(&order, api.IdCHannel, notify)
+	}
 
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-
 	order.Updates = order.Botapi.GetUpdatesChan(u)
 
 	go listen.GetPositionOrder(&api, &order, &trade)
