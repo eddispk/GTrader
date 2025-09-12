@@ -17,11 +17,11 @@ class Telegram():
         raw_list = os.getenv('SIGNAL_CHANNELS', '').strip()
         c1 = (os.getenv('SIGNAL_CHANNEL', '') or '').strip()
         c2 = (os.getenv('SIGNAL_CHANNEL_2', '') or '').strip()
-        c2 = (os.getenv('SIGNAL_CHANNEL_3', '') or '').strip()
+        c3 = (os.getenv('SIGNAL_CHANNEL_3', '') or '').strip()
         if raw_list:
             self.channels = [x.strip().lstrip('@') for x in raw_list.split(',') if x.strip()]
         else:
-            self.channels = [x.lstrip('@') for x in [c1, c2] if x]
+            self.channels = [x.lstrip('@') for x in [c1, c2, c3] if x]
 
         self.bot_name = (os.getenv('BOT_NAME', '') or '').strip().lstrip('@')
         self.session_str = (os.getenv('TELETHON_STRING_SESSION', '') or '').strip()
