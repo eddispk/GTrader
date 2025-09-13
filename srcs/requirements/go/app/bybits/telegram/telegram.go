@@ -489,15 +489,170 @@ func normalize(s string) string {
 	return s
 }
 
+func FourthChannelParse(msg string, debug bool, data Data) (Data, error) {
+	SetDataNil(&data)
+	text := normalize(msg)
+	lines := strings.Split(text, "\n")
+
+	// Header: "$COIN/USDT Long Setup" or "BTC/USDT Short Setup"
+	reHead := regexp.MustCompile(`(?i)^\s*\$?([A-Z0-9._-]+)\s*/\s*USDT\s+(Long|Short)\s+Setup`)
+	for _, raw := range lines {
+		l := strings.TrimSpace(raw)
+		if m := reHead.FindStringSubmatch(l); len(m) == 3 {
+			data.Currency = strings.ToUpper(m[1]) + "USDT"
+			if strings.EqualFold(m[2], "Long") {
+				data.Type = "Buy"
+			} else {
+				data.Type = "Sell"
+			}
+			break
+		}
+	}
+
+	// Entry / TP / SL (accepts numbers with or without $)
+	reNum := regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)`)
+	for _, raw := range lines {
+		l := strings.ToLower(strings.TrimSpace(raw))
+		switch {
+		case strings.HasPrefix(l, "entry"):
+			if m := reNum.FindStringSubmatch(raw); len(m) == 2 {
+				data.Entry = f6(mustParse(m[1]))
+			}
+		case strings.HasPrefix(l, "tp") || strings.HasPrefix(l, "take"):
+			if m := reNum.FindStringSubmatch(raw); len(m) == 2 {
+				data.Tp1 = f6(mustParse(m[1]))
+			}
+		case strings.HasPrefix(l, "sl") || strings.Contains(l, "stop"):
+			if m := reNum.FindStringSubmatch(raw); len(m) == 2 {
+				data.Sl = f6(mustParse(m[1]))
+			}
+		}
+	}
+
+	// Validate
+	if data.Currency == "" || data.Type == "" || data.Entry == "" || data.Tp1 == "" || data.Sl == "" {
+		if debug {
+			log.Println("[PARSER4] FAIL:", print.PrettyPrint(data))
+		}
+		return data, errors.New("error parsing (ch4)")
+	}
+
+	// Auto-generate TP2/TP3 from TP1 distance
+	entryF, _ := strconv.ParseFloat(data.Entry, 64)
+	tp1F, _ := strconv.ParseFloat(data.Tp1, 64)
+	d := math.Abs(tp1F - entryF)
+	if strings.EqualFold(data.Type, "Buy") {
+		data.Tp2 = f6(entryF + 2*d)
+		data.Tp3 = f6(entryF + 3*d)
+	} else {
+		data.Tp2 = f6(entryF - 2*d)
+		data.Tp3 = f6(entryF - 3*d)
+	}
+	data.Level = "20"
+	data.Source = "CH4"
+	data.Trade = true
+
+	if debug {
+		log.Println("[PARSER4] OK:", print.PrettyPrint(data))
+	}
+	return data, nil
+}
+
+func mustParse(s string) float64 {
+	f, _ := strconv.ParseFloat(strings.ReplaceAll(s, ",", ""), 64)
+	return f
+}
+
+// --- helpers ---
+
+// Pulls "[CH:...]" at the very start of the message and strips it from msg.
+func extractChannelTag(msg *string) string {
+	s := strings.TrimSpace(*msg)
+	if !strings.HasPrefix(s, "[CH:") {
+		return ""
+	}
+	end := strings.Index(s, "]")
+	if end <= 4 {
+		return ""
+	}
+	tag := strings.TrimSpace(s[4:end])
+	*msg = strings.TrimSpace(s[end+1:]) // remove the stamp from the message
+	return tag
+}
+
+// Small entry tolerance for single-price entries (default 0.20%).
+const entryTolPct = 0.20 // change if you like
+
+func applyEntryTolerance(d *Data) {
+	if d.Entry == "" || d.EntryLow != "" || d.EntryHigh != "" {
+		return
+	}
+	e, err := strconv.ParseFloat(d.Entry, 64)
+	if err != nil || e <= 0 {
+		return
+	}
+	p := entryTolPct / 100.0
+	d.EntryLow = f6(e * (1 - p))
+	d.EntryHigh = f6(e * (1 + p))
+}
+
+// --- router ---
+
 func ParseMsg(msg string, debug bool) (Data, error) {
 	var data Data
 
+	// cancellation still first
 	if strings.Contains(msg, "Cancelled") {
 		return CancelParse(msg, debug, data)
 	}
 
-	// NEW: detect Channel 3 quickly
+	// 1) Prefer explicit channel tag if present: [CH:@name] or [CH:-100...]
+	if tag := extractChannelTag(&msg); tag != "" {
+		// A) match common aliases/usernames (case-insensitive, ignore '@')
+		utag := strings.ToUpper(strings.TrimPrefix(strings.TrimSpace(tag), "@"))
+		switch utag {
+		case "CH1", "ETHAN_SIGNALS":
+			out, err := FuturParse(msg, debug, data)
+			return out, err
+		case "CH2", "LEAKS_VIP_SIGNALS":
+			out, err := SecondChannelParse(msg, debug, data)
+			return out, err
+		case "CH3", "AMAN_CRYPTO_VIP":
+			out, err := ThirdChannelParse(msg, debug, data)
+			return out, err
+		case "CH4", "PROFITRADAR", "PROFIT RADAR":
+			out, err := FourthChannelParse(msg, debug, data)
+			applyEntryTolerance(&out)
+			return out, err
+		}
+
+		// B) match numeric peer IDs exactly (private channels)
+		switch strings.TrimSpace(tag) {
+		case "-1002352183220": // Profit Radar
+			out, err := FourthChannelParse(msg, debug, data)
+			if err == nil {
+				applyEntryTolerance(&out)
+			}
+			return out, err
+		}
+	}
+
+	// 2) Fallback: auto-detect formats (your existing heuristics)
+
+	// Channel 4 quick check (Profit Radar style)
 	low := strings.ToLower(msg)
+	if strings.Contains(low, "setup") &&
+		strings.Contains(low, "/usdt") &&
+		strings.Contains(low, "entry") &&
+		strings.Contains(low, "tp") &&
+		strings.Contains(low, "sl") {
+		if out, err := FourthChannelParse(msg, debug, data); err == nil {
+			applyEntryTolerance(&out)
+			return out, nil
+		}
+	}
+
+	// Channel 3 quick check
 	if strings.Contains(low, "trade -") &&
 		strings.Contains(low, "buy zone") &&
 		strings.Contains(low, "stop loss") {
@@ -506,7 +661,7 @@ func ParseMsg(msg string, debug bool) (Data, error) {
 		}
 	}
 
-	// Channel 2?
+	// Channel 2 pattern
 	if reHeaderSymbol.MatchString(msg) && reSideRangeLine.MatchString(msg) {
 		if out, err := SecondChannelParse(msg, debug, data); err == nil {
 			return out, nil
@@ -514,5 +669,7 @@ func ParseMsg(msg string, debug bool) (Data, error) {
 	}
 
 	// Fallback to Channel 1
-	return FuturParse(msg, debug, data)
+	out, err := FuturParse(msg, debug, data)
+
+	return out, err
 }

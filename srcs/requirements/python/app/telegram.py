@@ -2,6 +2,8 @@ from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from dotenv import load_dotenv
 import os, sys
+from telethon.utils import get_peer_id
+from telethon.tl.types import Channel, Chat
 
 # Load envs both from container and project root (safe)
 load_dotenv()
@@ -12,16 +14,8 @@ class Telegram():
         self.api_id = int(api_id_raw)
         self.api_hash = os.getenv('API_HASH', '')
         # Support multiple channels:
-        # - SIGNAL_CHANNELS="chanA,chanB"
-        # - or SIGNAL_CHANNEL + SIGNAL_CHANNEL_2
         raw_list = os.getenv('SIGNAL_CHANNELS', '').strip()
-        c1 = (os.getenv('SIGNAL_CHANNEL', '') or '').strip()
-        c2 = (os.getenv('SIGNAL_CHANNEL_2', '') or '').strip()
-        c3 = (os.getenv('SIGNAL_CHANNEL_3', '') or '').strip()
-        if raw_list:
-            self.channels = [x.strip().lstrip('@') for x in raw_list.split(',') if x.strip()]
-        else:
-            self.channels = [x.lstrip('@') for x in [c1, c2, c3] if x]
+        self.channels = [x.strip().lstrip('@') for x in raw_list.split(',') if x.strip()]
 
         self.bot_name = (os.getenv('BOT_NAME', '') or '').strip().lstrip('@')
         self.session_str = (os.getenv('TELETHON_STRING_SESSION', '') or '').strip()
@@ -38,19 +32,7 @@ class Telegram():
             self.client = TelegramClient("trading bot", self.api_id, self.api_hash)
             print(f"[PY] RUN (file session)")
 
-    async def _forward(self, event):
-        try:
-            msg = event.message
-            text = (msg.message or "").strip() or (event.raw_text or "").strip()
-            print(f"[PY] NEW MSG chat_id={event.chat_id} kind={'media' if msg.media else 'text'} len={len(text)}")
-            if not text:
-                print("[PY] empty; skip")
-                return
-            await self.client.send_message(self.bot_name, message=text)
-            print(f"[PY] forwarded to @{self.bot_name}")
-        except Exception as e:
-            print(f"[PY][ERROR] forward failed: {e}")
-
+    # --- replace your start() with this ---
     def start(self):
         if not self.channels:
             print("[PY][ERROR] no SIGNAL_CHANNEL(S) configured"); sys.exit(1)
@@ -58,22 +40,63 @@ class Telegram():
         with self.client:
             self.client.loop.run_until_complete(self.client.connect())
 
-            # resolve all channels → ids
+            self.alias_by_id = {}   # peer id (-100...) -> label shown in stamp
             targets = []
             for ch in self.channels:
                 try:
-                    ent = self.client.loop.run_until_complete(self.client.get_entity(ch))
-                    targets.append(ent.id)
-                    print(f"[PY] resolved: @{ch} -> id={ent.id}")
+                    # allow @username / invite / or numeric -100... id
+                    ident = int(ch) if ch.lstrip("-").isdigit() else ch
+                    ent = self.client.loop.run_until_complete(self.client.get_entity(ident))
+                    pid = get_peer_id(ent)                  # <- canonical peer id (-100...)
+                    targets.append(pid)                     # listen by peer id
+
+                    alias = getattr(ent, "username", None)
+                    label = ("@" + alias) if alias else str(pid)  # use @ if public, else numeric id
+                    self.alias_by_id[pid] = label
+                    print(f"[PY] resolved: {ch} -> pid={pid} alias={label}")
                 except Exception as e:
                     print(f"[PY][ERROR] cannot resolve '{ch}': {e}")
                     sys.exit(1)
 
-            # one handler that listens to ALL target ids
             self.client.add_event_handler(self._forward, events.NewMessage(chats=targets))
             print(f"[PY] listening on {targets} -> @{self.bot_name}")
             self.client.run_until_disconnected()
 
+    # --- keep _forward, but ensure this small fallback is present ---
+    async def _forward(self, event):
+        try:
+            msg = event.message
+            text = (msg.message or "").strip() or (event.raw_text or "").strip()
+            if not text:
+                print("[PY] empty; skip")
+                return
+
+            chat_id = event.chat_id  # peer id (-100...)
+            label = self.alias_by_id.get(chat_id, str(chat_id))  # fallback: numeric id
+
+            stamped = f"[CH:{label}] {text}"
+            await self.client.send_message(self.bot_name, message=stamped)
+            print(f"[PY] forwarded from {label} to @{self.bot_name}")
+        except Exception as e:
+            print(f"[PY][ERROR] forward failed: {e}")
+            
 if __name__ == '__main__':
     print("[PY] Run Python")
+    if len(sys.argv) > 1 and sys.argv[1].lower() == "list":
+    # Print all dialogs with numeric IDs so you can copy the channel id
+        client = Telegram().client
+        with client:
+            client.loop.run_until_complete(client.connect())
+
+            async def _list():
+                async for d in client.iter_dialogs():
+                    ent = d.entity
+                    if isinstance(ent, (Channel, Chat)):
+                        pid = get_peer_id(ent)  # e.g. -1001234567890 for channels
+                        uname = getattr(ent, "username", None)
+                        alias = ("@" + uname) if uname else ""
+                        print(f"{pid}\t{alias}\t{d.name}")
+
+            client.loop.run_until_complete(_list())
+        sys.exit(0)
     Telegram().start()
